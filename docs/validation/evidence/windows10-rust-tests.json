@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 10 Pro 10.0.19045 x64",
+  "target": "x86_64-pc-windows-msvc",
+  "test_binaries": [
+    {"name": "socks_proxy", "sha256": "ab3fd9d1d2bed32b01db8957d921d3e342eabb9023485f58365110393d226f5c", "passed": 57, "failed": 0},
+    {"name": "network", "sha256": "d8a752e1c28f0b348233fc8ce74a60605539951a81c6bc05852f90921e45209c", "passed": 4, "failed": 0},
+    {"name": "profiles", "sha256": "5ae19f281cfe1c11255f874a2d2d5b05979a1161c9cfce9874d4f9635b3862b1", "passed": 5, "failed": 0},
+    {"name": "routing", "sha256": "a28e760791896e827b848ac2afeaeec4b351a05222c3a0fd5cb7ba17f8f5fd7e", "passed": 5, "failed": 0},
+    {"name": "rules", "sha256": "b42da98d6a0b005e597ac848690b2b4f6a436890c59f63610f8df160e6209a79", "passed": 2, "failed": 0}
+  ],
+  "total": {"passed": 73, "failed": 0},
+  "core_config_smoke": {
+    "executable_sha256": "4cca642bc11a8ee14747926b49f681d868502865313dc5bff9dce2451d84f584",
+    "config_check": true,
+    "acl_current_user_and_system": true,
+    "secret_in_args": false,
+    "temporary_removed": true
+  }
+}

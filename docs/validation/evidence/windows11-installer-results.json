@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-21",
+  "platform": "Windows 11 Pro 10.0.26200 x64",
+  "installer": "socks-proxy-0.1.0-windows-x64-setup.exe",
+  "installerSha256": "fbdeabcd02fef28cdc0337513171c1331d8f4aab3af29c41d9f96bcf236e15ea",
+  "installerEngine": "Inno Setup 6.7.3",
+  "installedPayload": true,
+  "startMenuEntry": true,
+  "coreHashVerified": true,
+  "uacManifest": true,
+  "guiSubsystem": true,
+  "webViewAbsent": true,
+  "recoveryCommand": true,
+  "sameVersionUpgrade": true,
+  "uninstallRemovedFiles": true,
+  "uninstallRemovedShortcut": true,
+  "coreProcessesAfterUninstall": 0,
+  "tunAdaptersAfterUninstall": 0,
+  "cleanMachine": false,
+  "windows10Covered": false,
+  "interactiveUacCovered": false
+}

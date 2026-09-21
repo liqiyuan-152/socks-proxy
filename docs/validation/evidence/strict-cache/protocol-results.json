@@ -1,0 +1,32 @@
+[
+  {
+    "Name": "ssh-banner-via-socks",
+    "Pass": true,
+    "SshBanner": "SSH-2.0-OpenSSH_for_Windows_10.0 Win32-OpenSSH-GitHub",
+    "Response": "HTTP/1.1 200 Connection established"
+  },
+  {
+    "Name": "udp-via-socks",
+    "Pass": true,
+    "EchoReceived": true,
+    "ProtocolEvidence": true
+  },
+  {
+    "Name": "ssh-banner-via-http",
+    "Pass": true,
+    "SshBanner": "SSH-2.0-OpenSSH_for_Windows_10.0 Win32-OpenSSH-GitHub",
+    "Response": "HTTP/1.1 200 Connection established"
+  },
+  {
+    "Name": "udp-via-http",
+    "Pass": true,
+    "EchoReceived": false,
+    "ProtocolEvidence": true
+  },
+  {
+    "Name": "http-connect-22-rejected",
+    "Pass": true,
+    "SshBanner": "",
+    "Response": "使用“0”个参数调用“ReadLine”时发生异常:“无法从传输连接中读取数据: An existing connection was forcibly closed by the remote host。”"
+  }
+]

@@ -1,0 +1,65 @@
+[
+  {
+    "Name": "dns-direct-with-dead-proxy",
+    "Pass": true,
+    "ExpectedSuccess": true,
+    "ActualSuccess": true,
+    "ExpectedRoute": "direct",
+    "RouteEvidence": true,
+    "CurlExit": 0
+  },
+  {
+    "Name": "dns-cidr",
+    "Pass": true,
+    "ExpectedSuccess": true,
+    "ActualSuccess": true,
+    "ExpectedRoute": "proxy",
+    "RouteEvidence": true,
+    "CurlExit": 0
+  },
+  {
+    "Name": "dns-multi-any",
+    "Pass": true,
+    "ExpectedSuccess": true,
+    "ActualSuccess": true,
+    "ExpectedRoute": "proxy",
+    "RouteEvidence": true,
+    "CurlExit": 0
+  },
+  {
+    "Name": "dns-ipv6-cidr",
+    "Pass": true,
+    "ExpectedSuccess": true,
+    "ActualSuccess": true,
+    "ExpectedRoute": "proxy",
+    "RouteEvidence": true,
+    "CurlExit": 0
+  },
+  {
+    "Name": "dns-domain-dead-proxy",
+    "Pass": true,
+    "ExpectedSuccess": false,
+    "ActualSuccess": false,
+    "ExpectedRoute": "proxy",
+    "RouteEvidence": true,
+    "CurlExit": 22
+  },
+  {
+    "Name": "dns-cidr-dead-proxy",
+    "Pass": true,
+    "ExpectedSuccess": false,
+    "ActualSuccess": false,
+    "ExpectedRoute": "proxy",
+    "RouteEvidence": true,
+    "CurlExit": 22
+  },
+  {
+    "Name": "dns-upstream-unavailable",
+    "Pass": true,
+    "ExpectedSuccess": false,
+    "ActualSuccess": false,
+    "ExpectedRoute": "",
+    "RouteEvidence": true,
+    "CurlExit": 22
+  }
+]

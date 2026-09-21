@@ -1,0 +1,50 @@
+{
+    "date":  "2026-09-21",
+    "platform":  "Microsoft Windows 11 Pro 10.0.26200 x64",
+    "transition":  "Wi-Fi disconnect and reconnect; wired adapter unavailable",
+    "probe":  "10.168.1.136:22",
+    "passed":  true,
+    "failure":  null,
+    "before":  {
+                   "stage":  "before",
+                   "capturedAt":  "2026-09-21T14:21:08.3715989+08:00",
+                   "wifiStatus":  "Up",
+                   "wifiIfIndex":  11,
+                   "wifiIpv4":  [
+                                    "10.168.1.158"
+                                ],
+                   "tcpProbe":  true,
+                   "applicationProcesses":  1,
+                   "coreProcesses":  0,
+                   "tunAdapters":  0,
+                   "ownedRoutes":  0
+               },
+    "disconnected":  {
+                         "stage":  "disconnected",
+                         "capturedAt":  "2026-09-21T14:21:15.1004334+08:00",
+                         "wifiStatus":  "Disabled",
+                         "wifiIfIndex":  11,
+                         "wifiIpv4":  [
+
+                                      ],
+                         "tcpProbe":  false,
+                         "applicationProcesses":  1,
+                         "coreProcesses":  0,
+                         "tunAdapters":  0,
+                         "ownedRoutes":  0
+                     },
+    "reconnected":  {
+                        "stage":  "reconnected",
+                        "capturedAt":  "2026-09-21T14:21:23.1154043+08:00",
+                        "wifiStatus":  "Up",
+                        "wifiIfIndex":  11,
+                        "wifiIpv4":  [
+                                         "10.168.1.158"
+                                     ],
+                        "tcpProbe":  true,
+                        "applicationProcesses":  1,
+                        "coreProcesses":  0,
+                        "tunAdapters":  0,
+                        "ownedRoutes":  0
+                    }
+}

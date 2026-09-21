@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 10 Pro 10.0.19045 x64",
+  "applicationSha256": "7587f23e4263421a81aac9aa6ff65774495c02e999a29ef270aac57cfd2f1f3d",
+  "trayErrorAbsent": true,
+  "directIconGreenPixels": 127,
+  "leftClickHidWindow": true,
+  "leftClickRestoredWindow": true,
+  "closeHidWindow": true,
+  "closeKeptProcess": true,
+  "restoredAfterClose": true,
+  "menuNames": [
+    "代理模式",
+    "切换代理",
+    "状态",
+    "代理管理...",
+    "规则管理...",
+    "查看连接日志...",
+    "设置...",
+    "退出"
+  ],
+  "modeNames": ["规则代理", "全局代理", "全局直连"],
+  "directMenuChecked": true,
+  "pageCaptureHashes": {
+    "状态": "f3f89fef45d03244900f81a18c1da93a902108e6ddca18447bd0f7038633ab1f1",
+    "代理管理": "1385b2d2ecdbe607c9359f419d3e7e34f8457afeaa514cd49622f0dec9d7e01b2",
+    "规则管理": "65c39b2710aa28107c70c0cf422a0a237c9a41a344dc09b311f7bedecae1917af",
+    "连接日志": "34fceb376cb8ac11a437a133b686726c0d21dc9d663eeedfdec8e424175448721",
+    "设置": "bc7a30577919ff12e7d5443706d37dc254c2412cbb43b3ec9826314b05b72ed69"
+  },
+  "processExited": true,
+  "coreProcessesAfterExit": 0,
+  "tunAdaptersAfterExit": 0,
+  "routesUnchanged": true,
+  "dnsUnchanged": true
+}

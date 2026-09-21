@@ -1,0 +1,15 @@
+{
+  "date": "2026-09-21",
+  "platform": "Windows 11 Pro 10.0.26200 x64",
+  "coreVersion": "1.14.1-socks-proxy.2",
+  "coreSha256": "40a64f2973858203468da544db40c6d546f14fd8f02ffa38954e16bb776927a1",
+  "validationExeSha256": "fdc458426b713fa318053af2c7b47da89e48f4bccc5088073f5af4cd382f26ab",
+  "hostTerminated": true,
+  "childTerminatedByJob": true,
+  "tunWasActive": true,
+  "tunRemovedAfterCrash": true,
+  "trafficMayBeDirectBoundary": true,
+  "nextLaunchRestoredRules": true,
+  "explicitDirect": true,
+  "lastModeDirect": true
+}

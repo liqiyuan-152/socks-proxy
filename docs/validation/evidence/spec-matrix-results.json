@@ -1,0 +1,694 @@
+{
+  "groups": {
+    "configuration-storage/启动默认值": {
+      "status": "Pass",
+      "actual": "首次启动保持 Direct；持久化 Rules、代理及规则后重启会尝试恢复，失败不显示 Running。",
+      "evidence": ["docs/validation/windows-settings-backup.md", "docs/validation/windows-ui-controller.md"]
+    },
+    "configuration-storage/凭据保护": {
+      "status": "Pass",
+      "actual": "Windows CurrentUser DPAPI、跨账户解密失败及普通配置无秘密均已实测。",
+      "evidence": ["docs/validation/windows-identity.md", "docs/validation/windows-core-config.md"]
+    },
+    "configuration-storage/配置备份导入": {
+      "status": "Pass",
+      "actual": "无密码导出、预览、Direct 状态提交、非法及竞态/写入失败回滚均已验证。",
+      "evidence": ["docs/validation/windows-settings-backup.md", "docs/validation/rust-domain.md"]
+    },
+    "configuration-storage/凭据修改与配置事务": {
+      "status": "Pass",
+      "actual": "不可变凭据版本、运行应用失败、磁盘提交失败、崩溃恢复及备份引用保留均通过故障注入。",
+      "evidence": ["docs/validation/rust-domain.md", "docs/validation/windows-application-switch.md"]
+    },
+    "connection-logs/连接诊断": {
+      "status": "Pass",
+      "actual": "真实内核成功、未知规则和失败事件均显示实际出站与结果，不推测规则。",
+      "evidence": ["docs/validation/windows-connection-logs.md"]
+    },
+    "connection-logs/本地与脱敏": {
+      "status": "Pass",
+      "actual": "内核行、错误、加载的旧事件在展示和写盘前统一脱敏。",
+      "evidence": ["docs/validation/connection-log-storage.md"]
+    },
+    "connection-logs/清空与保留": {
+      "status": "Pass",
+      "actual": "7 天/20 MiB 清理最旧事件；Windows 运行中清空不改变代理状态。",
+      "evidence": ["docs/validation/connection-log-storage.md", "docs/validation/windows-connection-logs.md"]
+    },
+    "core-lifecycle/启动授权": {
+      "status": "Pass",
+      "actual": "管理员清单、GUI 子系统、隐藏控制台、单实例与单一托盘进程已验证。",
+      "evidence": ["docs/validation/windows-startup.md", "docs/validation/windows-tray.md"]
+    },
+    "core-lifecycle/应用配置事务": {
+      "status": "Pass",
+      "actual": "配置/版本/启动失败不会提前提交，切换前显示中断确认并保留旧状态。",
+      "evidence": ["docs/validation/windows-core-config.md", "docs/validation/windows-application-switch.md", "docs/validation/windows-ui-controller.md"]
+    },
+    "core-lifecycle/退出与恢复": {
+      "status": "Pass",
+      "actual": "所有权恢复、失败重试、外部修改保留和异常启动恢复已在 Windows 验证。",
+      "evidence": ["docs/validation/windows-network-recovery.md", "docs/validation/windows-runtime-failure.md"]
+    },
+    "core-lifecycle/内核运行异常": {
+      "status": "Pass",
+      "actual": "生产 UI 状态轮询捕获内核退出，保留最后模式并支持重试或显式 Direct。",
+      "evidence": ["docs/validation/windows-runtime-failure.md", "docs/validation/windows-ui-controller.md"]
+    },
+    "core-lifecycle/FakeIP 缓存恢复": {
+      "status": "Pass",
+      "actual": "直连刷新、失败可重试、映射兼容重启及损坏拒绝均已验证。",
+      "evidence": ["docs/validation/windows-network-recovery.md", "docs/validation/strict-cache-patch.md"]
+    },
+    "desktop-shell/Windows 桌面交付": {
+      "status": "Pass",
+      "actual": "最终安装包在 Windows 11 完成安装、恢复命令、升级和零残留卸载；解锁桌面后从开始菜单启动产生一个真实渲染窗口和一个托盘，无控制台和 WebView2 增量。",
+      "evidence": ["docs/validation/windows-installer.md", "docs/validation/windows-tray.md", "docs/validation/evidence/windows11-final-installer-results.json", "docs/validation/evidence/windows11-installed-launch-results.json"]
+    },
+    "desktop-shell/页面与状态": {
+      "status": "Pass",
+      "actual": "五页与共享状态源已验证；从真实托盘切换 Direct 和 Rules 后，菜单、窗口状态与实际核心数量同步，内核退出后进入 Error。",
+      "evidence": ["docs/validation/native-ui-layout.md", "docs/validation/windows-ui-controller.md", "docs/validation/windows-tray.md", "docs/validation/evidence/windows11-tray-state-results.json"]
+    },
+    "desktop-shell/单一托盘菜单": {
+      "status": "Pending",
+      "actual": "托盘创建和单实例通过，但 SSH 无交互窗口，菜单点击、关闭隐藏与图标目视检查未执行。",
+      "evidence": ["docs/validation/windows-tray.md"]
+    },
+    "proxy-profiles/管理代理配置": {
+      "status": "Pass",
+      "actual": "SOCKS5/HTTP 无认证、认证、错误密码及字段校验均通过模型和真实 Windows 内核路径。",
+      "evidence": ["docs/validation/rust-domain.md", "docs/validation/m0-windows11.md", "docs/validation/windows-ui-controller.md"]
+    },
+    "proxy-profiles/单个当前代理": {
+      "status": "Pass",
+      "actual": "A/B 单选切换、缺失代理拒绝和运行代理删除保护均已验证。",
+      "evidence": ["docs/validation/windows-ui-controller.md", "docs/validation/rust-domain.md"]
+    },
+    "proxy-profiles/代理协议失败反馈": {
+      "status": "Pass",
+      "actual": "HTTP CONNECT 22 拒绝产生可诊断失败且无直连回退。",
+      "evidence": ["docs/validation/m0-windows11.md", "docs/validation/windows-connection-logs.md"]
+    },
+    "traffic-routing/三种代理模式": {
+      "status": "Pass",
+      "actual": "Rules、Global、Direct 的真实新连接路径、内网例外和 TUN 清理均通过。",
+      "evidence": ["docs/validation/windows-ui-controller.md", "docs/validation/windows-managed-routing.md"]
+    },
+    "traffic-routing/五种目标规则": {
+      "status": "Pass",
+      "actual": "五类目标、边界、IPv6/CIDR、非法范围和禁用规则均通过。",
+      "evidence": ["docs/validation/windows-rule-editor.md", "docs/validation/windows-managed-routing.md"]
+    },
+    "traffic-routing/端口条件": {
+      "status": "Pass",
+      "actual": "混合端口、空端口及非法上下界均由同一解析器和 UI 字段验证覆盖。",
+      "evidence": ["docs/validation/windows-rule-editor.md", "docs/validation/rust-domain.md"]
+    },
+    "traffic-routing/内网规则和基础例外": {
+      "status": "Pass",
+      "actual": "远程私网规则代理与上游端点防回环在真实受管理路由中通过。",
+      "evidence": ["docs/validation/windows-managed-routing.md"]
+    },
+    "traffic-routing/DNS 与域名识别": {
+      "status": "Pass",
+      "actual": "浏览器式 HTTP 和 SSH 域名经 FakeIP 恢复；不可见域名保持未知并按 IP/端口处理。",
+      "evidence": ["docs/validation/windows-managed-routing.md", "docs/validation/windows-connection-logs.md", "docs/user-guide.md"]
+    },
+    "traffic-routing/故障及传输能力边界": {
+      "status": "Pass",
+      "actual": "上游失败无直连回退；HTTP UDP 明确失败，SOCKS5 UDP fixture 成功。",
+      "evidence": ["docs/validation/m0-windows11.md", "docs/validation/windows-managed-routing.md"]
+    },
+    "traffic-routing/合成地址与真实 IP 规则": {
+      "status": "Pass",
+      "actual": "真实单 IP/CIDR/范围、多地址任一、解析失败及混合内外网候选均通过 FakeIP/TUN 全链路。",
+      "evidence": ["docs/validation/windows-managed-routing.md"]
+    },
+    "traffic-routing/DNS 出站隔离": {
+      "status": "Pass",
+      "actual": "代理故障时未命中域名独立直连；直连 DNS 和代理解析失败均保持确定失败。",
+      "evidence": ["docs/validation/windows-managed-routing.md"]
+    }
+  },
+  "overrides": {
+    "core-lifecycle/启动授权/拒绝授权": {
+      "status": "Pass",
+      "actual": "从非提升交互 Session 12 启动后在安全桌面真实按 Escape；系统返回用户取消错误 1223，应用、内核、TUN 和所有权路由前后均为 0，路由与 DNS 不变。",
+      "evidence": ["docs/validation/windows-startup.md", "docs/validation/evidence/windows11-uac-cancel-results.json"]
+    },
+    "core-lifecycle/应用配置事务/切换中的 SSH": {
+      "status": "Pass",
+      "actual": "真实 SSH 长连接在代理 A 上建立；A→B 的受控重启会重置旧会话，确认提示准确，新会话通过 B 成功。",
+      "evidence": ["docs/validation/windows-network-transitions.md", "docs/validation/windows-application-switch.md"]
+    },
+    "core-lifecycle/退出与恢复/正常退出": {
+      "status": "Pass",
+      "actual": "Rules 运行并注入内核故障后从真实托盘退出；应用、内核、TUN/PnP 和所有权路由均为 0，最后成功模式仍为 Rules。",
+      "evidence": ["docs/validation/windows-installer.md", "docs/validation/windows-tray.md", "docs/validation/evidence/windows11-tray-state-results.json"]
+    },
+    "core-lifecycle/内核运行异常/内核崩溃": {
+      "status": "Pass",
+      "actual": "强制终止真实内核后窗口和托盘菜单进入 Error，保留 Rules 最后成功模式；通知区 Error 图标检测到 119 个生产红色像素。",
+      "evidence": ["docs/validation/windows-runtime-failure.md", "docs/validation/windows-tray.md", "docs/validation/evidence/windows11-tray-state-results.json"]
+    },
+    "desktop-shell/单一托盘菜单/菜单操作": {
+      "status": "Pass",
+      "actual": "真实右键菜单包含状态、模式、代理、五个页面入口和退出；模式子菜单恰好三项，代理子菜单只有当前代理。",
+      "evidence": ["docs/validation/windows-tray.md", "docs/validation/evidence/windows11-menu-close-results.json"]
+    },
+    "desktop-shell/单一托盘菜单/关闭窗口": {
+      "status": "Pass",
+      "actual": "Rules 运行时关闭窗口后窗口隐藏，应用和核心进程继续运行；左键托盘后窗口恢复。",
+      "evidence": ["docs/validation/windows-tray.md", "docs/validation/evidence/windows11-menu-close-results.json"]
+    },
+    "desktop-shell/单一托盘菜单/状态图标": {
+      "status": "Pass",
+      "actual": "Direct、Rules 和 Error 的托盘菜单状态与运行状态一致；最新 tooltip 状态出现在 Explorer 可访问名称中，Error 图标检测到 119 个生产红色像素。",
+      "evidence": ["docs/validation/windows-tray.md", "docs/validation/evidence/windows11-tray-state-results.json"]
+    }
+  },
+  "windows10": {
+    "groups": {
+      "configuration-storage/凭据修改与配置事务": {
+        "status": "Pass",
+        "actual": "Win10 原生 Rust 测试覆盖新凭据版本、运行/配置提交失败回滚、崩溃恢复和无引用凭据清理。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "connection-logs/连接诊断": {
+        "status": "Pass",
+        "actual": "生产控制器在 Win10 实际 TUN 路径中记录了已知规则命中、规则未知的成功连接和上游停止后的失败连接。",
+        "evidence": [
+          "docs/validation/windows-ui-controller.md",
+          "docs/validation/evidence/windows10-ui-controller-results.json"
+        ]
+      },
+      "connection-logs/本地与脱敏": {
+        "status": "Pass",
+        "actual": "Win10 原生测试确认内核行、错误、URL 用户信息和重载旧事件在展示及写盘前统一脱敏。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "traffic-routing/端口条件": {
+        "status": "Pass",
+        "actual": "Win10 原生网络与规则测试覆盖单端口、多端口、范围、留空、上下界和反向范围。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      }
+    },
+    "overrides": {
+      "configuration-storage/启动默认值/首次启动": {
+        "status": "Pass",
+        "actual": "Win10 原生验证程序确认首次配置的持久模式和实际模式均为 Direct，且默认不开机启动。",
+        "evidence": [
+          "docs/validation/windows-settings-backup.md",
+          "docs/validation/evidence/windows10-storage-recovery-results.json"
+        ]
+      },
+      "configuration-storage/启动默认值/恢复配置": {
+        "status": "Pass",
+        "actual": "Win10 原生测试确认持久化 Rules 和当前代理后重启恢复；恢复失败保留期望模式且不显示 Running。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "configuration-storage/凭据保护/磁盘配置检查": {
+        "status": "Pass",
+        "actual": "普通配置和备份无秘密，CurrentUser DPAPI 密文不含明文，内核命令行无秘密，临时文件 ACL 仅含有效账户与 SYSTEM。",
+        "evidence": [
+          "docs/validation/windows-settings-backup.md",
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json",
+          "docs/validation/windows-identity.md",
+          "docs/validation/evidence/windows10-identity-results.json"
+        ]
+      },
+      "configuration-storage/凭据保护/凭据不可解密": {
+        "status": "Pass",
+        "actual": "临时标准账户和管理员均只能解密各自 CurrentUser DPAPI 数据，跨账户解密双向失败且错误可辨认。",
+        "evidence": [
+          "docs/validation/windows-identity.md",
+          "docs/validation/evidence/windows10-identity-results.json"
+        ]
+      },
+      "configuration-storage/配置备份导入/默认导出": {
+        "status": "Pass",
+        "actual": "认证代理备份保留认证标记，但不含用户名、密码、凭据引用或上次运行模式。",
+        "evidence": [
+          "docs/validation/windows-settings-backup.md",
+          "docs/validation/evidence/windows10-storage-recovery-results.json"
+        ]
+      },
+      "configuration-storage/配置备份导入/合法导入": {
+        "status": "Pass",
+        "actual": "预览报告待补凭据，整体导入代理和规则后继续保持 Direct，不自动启动代理。",
+        "evidence": [
+          "docs/validation/windows-settings-backup.md",
+          "docs/validation/evidence/windows10-storage-recovery-results.json"
+        ]
+      },
+      "configuration-storage/配置备份导入/非法导入": {
+        "status": "Pass",
+        "actual": "Win10 原生测试拒绝损坏内容、未知版本和非法字段，旧配置与运行状态保持不变。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "configuration-storage/配置备份导入/运行期间导入": {
+        "status": "Pass",
+        "actual": "Win10 原生控制器测试在代理模式和过渡状态拒绝提交导入，仅允许已恢复 Direct。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "configuration-storage/配置备份导入/提交失败或状态改变": {
+        "status": "Pass",
+        "actual": "Win10 原生测试覆盖提交前状态/修订复核与写入失败，保留旧配置、凭据和运行状态。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "core-lifecycle/应用配置事务/配置校验失败": {
+        "status": "Pass",
+        "actual": "Win10 原生事务测试确认候选校验失败不改变运行快照；严格缓存损坏的真实内核路径同样保持 Direct 并显示错误。",
+        "evidence": [
+          "docs/validation/windows-ui-controller.md",
+          "docs/validation/evidence/windows10-ui-controller-results.json",
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+    "core-lifecycle/应用配置事务/内核启动失败": {
+      "status": "Pass",
+      "actual": "Win10 原生测试覆盖缺失二进制、错误版本、未就绪和启动失败，均不报告 Running；真实内核配置检查和进程监管通过。",
+        "evidence": [
+          "docs/validation/windows-runtime-failure.md",
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json",
+        "docs/validation/evidence/windows10-storage-recovery-results.json"
+      ]
+    },
+    "core-lifecycle/应用配置事务/切换中的 SSH": {
+      "status": "Pass",
+      "actual": "真实 SSH 长连接经代理 A 建立；确认切换 A→B 后旧会话按提示断开，新会话经 B 成功，Win10 最终三次连续复跑通过。",
+      "evidence": [
+        "docs/validation/windows-network-transitions.md",
+        "docs/validation/evidence/windows10-ssh-long-session-results.json"
+      ]
+    },
+      "core-lifecycle/启动授权/拒绝授权": {
+        "status": "Pass",
+        "actual": "从非提升交互会话启动后在安全桌面取消 UAC；应用、内核、TUN、路由和 DNS 均保持原状。",
+        "evidence": [
+          "docs/validation/windows-startup.md",
+          "docs/validation/evidence/windows10-final-startup-results.json"
+        ]
+      },
+      "core-lifecycle/启动授权/成功启动": {
+        "status": "Pass",
+        "actual": "交互会话内只保留一个应用实例和托盘；第二实例在 5 秒内正常退出，应用使用 GUI 子系统且无控制台。",
+        "evidence": [
+          "docs/validation/windows-startup.md",
+          "docs/validation/evidence/windows10-final-startup-results.json"
+        ]
+      },
+      "core-lifecycle/退出与恢复/正常退出": {
+        "status": "Pass",
+        "actual": "生产 GUI 以 Rules 模式运行时从真实托盘退出；应用、内核、TUN/PnP 和所有权路由均为 0，最后成功模式仍为 Rules。",
+        "evidence": [
+          "docs/validation/windows-tray.md",
+          "docs/validation/evidence/windows10-final-tray-results.json",
+          "docs/validation/evidence/windows10-ui-controller-results.json",
+          "docs/validation/evidence/windows10-shutdown-dns-results.json"
+        ]
+      },
+      "core-lifecycle/退出与恢复/恢复失败": {
+        "status": "Pass",
+        "actual": "注入恢复写入失败和 DNS 刷新失败后记录保持可重试；重试完成后清除记录，并保留外部 VPN 式 DNS 新值。",
+        "evidence": [
+          "docs/validation/windows-network-recovery.md",
+          "docs/validation/evidence/windows10-storage-recovery-results.json"
+        ]
+      },
+      "core-lifecycle/退出与恢复/上次异常退出": {
+        "status": "Pass",
+        "actual": "重建恢复对象后读取持久记录继续恢复，外部修改未被覆盖，最后成功 Rules 模式未被恢复流程改写。",
+        "evidence": [
+          "docs/validation/windows-network-recovery.md",
+          "docs/validation/evidence/windows10-storage-recovery-results.json"
+        ]
+      },
+      "core-lifecycle/内核运行异常/内核崩溃": {
+        "status": "Pass",
+        "actual": "强制终止真实锁定内核后检测到退出，显示 Error 和可能直连，保留 Rules 期望模式，并成功重试 Rules 或显式恢复 Direct。",
+        "evidence": [
+          "docs/validation/windows-runtime-failure.md",
+          "docs/validation/evidence/windows10-storage-recovery-results.json"
+        ]
+      },
+      "core-lifecycle/FakeIP 缓存恢复/系统缓存刷新失败": {
+        "status": "Pass",
+        "actual": "注入 DNS 缓存刷新失败时保留可重试状态和应用缓存提示，随后真实 ipconfig /flushdns 成功并清除记录。",
+        "evidence": [
+          "docs/validation/windows-network-recovery.md",
+          "docs/validation/evidence/windows10-storage-recovery-results.json"
+        ]
+      },
+      "core-lifecycle/FakeIP 缓存恢复/直连后重新解析": {
+        "status": "Pass",
+        "actual": "生产 WindowsRuntime 关停前返回 IPv4/IPv6 FakeIP；确认中断并停止接管、刷新系统 DNS 后，同一名称重新解析为真实公网地址，同时保留应用私有缓存提示。",
+        "evidence": [
+          "docs/validation/windows-network-recovery.md",
+          "docs/validation/evidence/windows10-shutdown-dns-results.json"
+        ]
+      },
+      "core-lifecycle/FakeIP 缓存恢复/兼容内核重启": {
+        "status": "Pass",
+        "actual": "两个域名获得不同 FakeIP，强制停止并使用同一严格缓存重启后，两组映射均保持不变。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "core-lifecycle/FakeIP 缓存恢复/映射损坏": {
+        "status": "Pass",
+        "actual": "破坏严格缓存后重新进入 Rules 被拒绝，错误可见，已应用状态和最后成功模式均保持 Direct。",
+        "evidence": [
+          "docs/validation/windows-ui-controller.md",
+          "docs/validation/evidence/windows10-ui-controller-results.json"
+        ]
+      },
+      "desktop-shell/Windows 桌面交付/安装启动": {
+        "status": "Pass",
+        "actual": "全新 Windows 10 安装、开始菜单启动、管理员清单、GUI 子系统、静态 MSVC 运行时及无 WebView 均已验证。",
+        "evidence": [
+          "docs/validation/windows-installer.md",
+          "docs/validation/evidence/windows10-final-installer-results.json"
+        ]
+      },
+      "desktop-shell/页面与状态/状态同步": {
+        "status": "Pass",
+        "actual": "从真实托盘依次切换 Direct 和 Rules 后，窗口、菜单状态与实际内核数量同步；强制终止内核后窗口、菜单及 tooltip 一致进入 Error。",
+        "evidence": [
+          "docs/validation/windows-tray.md",
+          "docs/validation/evidence/windows10-final-tray-results.json",
+          "docs/validation/evidence/windows10-tray-state-results.json"
+        ]
+      },
+      "desktop-shell/单一托盘菜单/菜单操作": {
+        "status": "Pass",
+        "actual": "单一托盘菜单包含状态、三种模式、代理、五个页面入口和退出；Direct 单选状态与实际状态一致，页面入口和退出均完成交互验证。",
+        "evidence": [
+          "docs/validation/windows-tray.md",
+          "docs/validation/evidence/windows10-final-tray-results.json"
+        ]
+      },
+      "desktop-shell/单一托盘菜单/关闭窗口": {
+        "status": "Pass",
+        "actual": "关闭窗口后应用和托盘继续运行，左键托盘可重新显示窗口。",
+        "evidence": [
+          "docs/validation/windows-tray.md",
+          "docs/validation/evidence/windows10-final-tray-results.json"
+        ]
+      },
+      "desktop-shell/单一托盘菜单/状态图标": {
+        "status": "Pass",
+        "actual": "Direct、Rules 和 Error 的通知区 tooltip 与菜单状态一致；Error 图标检测到 119 个生产红色像素，Direct 绿色图标已有独立证据。",
+        "evidence": [
+          "docs/validation/windows-tray.md",
+          "docs/validation/evidence/windows10-final-tray-results.json",
+          "docs/validation/evidence/windows10-tray-state-results.json"
+        ]
+      },
+      "proxy-profiles/单个当前代理/统一切换": {
+        "status": "Pass",
+        "actual": "生产控制器从代理 A 切换到 B 前要求确认，确认后新 HTTP 连接正文由 A 变为 B，规则保持有效。",
+        "evidence": [
+          "docs/validation/windows-ui-controller.md",
+          "docs/validation/evidence/windows10-ui-controller-results.json"
+        ]
+      },
+      "proxy-profiles/代理协议失败反馈/SSH 被 HTTP 代理拒绝": {
+        "status": "Pass",
+        "actual": "受控 SSH banner 可经 HTTP 上游传递，而拒绝 22 的 HTTP fixture 返回明确失败；连接未改为直连。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "traffic-routing/三种代理模式/规则命中和未命中": {
+        "status": "Pass",
+        "actual": "生产控制器的 IP 加端口规则命中代理 A；Win10 原生路由测试确认未命中目标直连且代理不可达不影响该路径。",
+        "evidence": [
+          "docs/validation/windows-ui-controller.md",
+          "docs/validation/evidence/windows10-ui-controller-results.json",
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json",
+          "docs/validation/windows10-core-routing.md"
+        ]
+      },
+      "traffic-routing/三种代理模式/全局模式": {
+        "status": "Pass",
+        "actual": "全局模式公网目标经当前代理成功，全私网候选直连，公网与私网混合候选保持代理。",
+        "evidence": [
+          "docs/validation/windows-ui-controller.md",
+          "docs/validation/evidence/windows10-ui-controller-results.json",
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "traffic-routing/三种代理模式/全局直连": {
+        "status": "Pass",
+        "actual": "从代理模式切换 Direct 后停止 TUN，保留控制器中的代理与规则，并连续两轮确认内核、网络连接和 Wintun PnP 均无残留。",
+        "evidence": [
+          "docs/validation/windows-ui-controller.md",
+          "docs/validation/evidence/windows10-ui-controller-results.json"
+        ]
+      },
+      "traffic-routing/五种目标规则/域名边界": {
+        "status": "Pass",
+        "actual": "精确域名规则的浏览器和 SSH 连接命中代理；Win10 原生规则测试覆盖父域、子域、大小写、尾点和错误标签边界。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json",
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "traffic-routing/五种目标规则/IP 边界": {
+        "status": "Pass",
+        "actual": "单 IP、IPv4 CIDR 和 IP 范围内地址实际命中代理；Win10 原生网络测试覆盖范围端点和端点外反例。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json",
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "traffic-routing/五种目标规则/IPv6 和网段": {
+        "status": "Pass",
+        "actual": "IPv6 CIDR 内目标实际命中代理；Win10 原生网络测试覆盖 IPv4/IPv6 网段边界和非法网段拒绝。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json",
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "traffic-routing/五种目标规则/非法范围": {
+        "status": "Pass",
+        "actual": "Win10 原生网络与规则测试拒绝起点大于终点、跨地址族和展开超限的 IP 范围。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "traffic-routing/五种目标规则/关闭规则": {
+        "status": "Pass",
+        "actual": "Win10 原生规则测试确认禁用规则不参与匹配，其他启用规则继续生效。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "traffic-routing/内网规则和基础例外/远程内网 SSH": {
+        "status": "Pass",
+        "actual": "远程私网目标 10.20.30.40:22 由 IP 加端口规则交给当前 SOCKS5 上游，真实 SSH 会话在代理 A 和切换后的代理 B 均成功。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json",
+          "docs/validation/windows-network-transitions.md",
+          "docs/validation/evidence/windows10-ssh-long-session-results.json"
+        ]
+      },
+      "traffic-routing/内网规则和基础例外/代理自身": {
+        "status": "Pass",
+        "actual": "Win10 原生路由测试确认本机控制端点和当前上游地址例外位于用户规则及全局策略之前；真实内核配置 check 通过。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "traffic-routing/DNS 与域名识别/SSH 域名": {
+        "status": "Pass",
+        "actual": "SSH 域名通过受管理 DNS 与域名规则命中代理，受控 SSH banner 经实际代理链路返回。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "traffic-routing/DNS 与域名识别/不可见域名": {
+        "status": "Pass",
+        "actual": "域名身份不可获得时，Win10 真实单 IP 规则和未命中直连路径仅使用 IP/端口决策；缺少域名或规则标识的连接事件保持未知，用户指南说明 DoH 与私有缓存边界。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json",
+          "docs/validation/windows-connection-logs.md",
+          "docs/user-guide.md"
+        ]
+      },
+      "traffic-routing/故障及传输能力边界/上游故障": {
+        "status": "Pass",
+        "actual": "已命中域名和真实 CIDR 的连接在代理不可达时均失败并保留代理路由证据；未命中目标仍走独立直连。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "traffic-routing/故障及传输能力边界/HTTP 的 UDP": {
+        "status": "Pass",
+        "actual": "HTTP 出站收到 UDP 时明确记录不支持并使请求失败，没有静默直连。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "traffic-routing/合成地址与真实 IP 规则/域名访问命中 CIDR": {
+        "status": "Pass",
+        "actual": "域名经受管理 DNS 得到真实 IPv4/IPv6 候选并命中 CIDR 后使用代理，FakeIP 未参与真实 CIDR 比较。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "traffic-routing/合成地址与真实 IP 规则/多地址解析": {
+        "status": "Pass",
+        "actual": "受控域名返回多个地址时，其中任一真实候选命中规则即整条连接使用代理。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "traffic-routing/合成地址与真实 IP 规则/解析失败": {
+        "status": "Pass",
+        "actual": "路由判定所需直连 DNS 不可用时连接失败并留有 DNS 失败证据，没有按未知或代理路径继续。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "traffic-routing/合成地址与真实 IP 规则/全局模式下的域名内网例外": {
+        "status": "Pass",
+        "actual": "全为私网候选的域名使用直连；公私网混合候选保持代理，FakeIP 不参与内网判定。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "traffic-routing/DNS 出站隔离/上游代理故障但普通域名可访问": {
+        "status": "Pass",
+        "actual": "代理不可达时，未命中域名仍通过独立直连 DNS 解析并直连成功，命中目标保持失败。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "traffic-routing/DNS 出站隔离/直连 DNS 故障": {
+        "status": "Pass",
+        "actual": "直连 DNS 不可用时连接失败并记录解析错误，没有改用代理 DNS 改变分流结果。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "traffic-routing/DNS 出站隔离/已命中域名规则但代理解析失败": {
+        "status": "Pass",
+        "actual": "域名规则确定代理后，代理端解析路径失败使连接失败，没有使用直连 DNS 回退。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json"
+        ]
+      },
+      "connection-logs/清空与保留/用户清空": {
+        "status": "Pass",
+        "actual": "运行于 Global Proxy 时清空日志，事件文件和内存记录均清空，已应用代理模式保持不变。",
+        "evidence": [
+          "docs/validation/windows-ui-controller.md",
+          "docs/validation/evidence/windows10-ui-controller-results.json"
+        ]
+      },
+      "connection-logs/清空与保留/日志达到上限": {
+        "status": "Pass",
+        "actual": "Win10 原生日志测试注入超龄和超 20 MiB 事件，按时间删除最旧记录并保留限制内事件。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "proxy-profiles/管理代理配置/无认证代理": {
+        "status": "Pass",
+        "actual": "Win10 原生代理测试保存无认证 SOCKS5 配置，生产控制器再以代理 A/B 完成真实连接。",
+        "evidence": [
+          "docs/validation/windows-ui-controller.md",
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "proxy-profiles/管理代理配置/认证代理": {
+        "status": "Pass",
+        "actual": "SOCKS5 与 HTTP 正确认证在 Win10 真实内核链路成功，错误密码明确失败；列表与普通配置不展示秘密。",
+        "evidence": [
+          "docs/validation/windows10-core-routing.md",
+          "docs/validation/evidence/windows10-core-routing-results.json",
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "proxy-profiles/管理代理配置/非法输入": {
+        "status": "Pass",
+        "actual": "Win10 原生代理测试拒绝空或非法地址和越界端口，已有配置保持不变。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "proxy-profiles/单个当前代理/缺少代理": {
+        "status": "Pass",
+        "actual": "Win10 原生测试在没有有效当前代理时拒绝进入代理模式且保留原选择。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      },
+      "proxy-profiles/单个当前代理/删除当前代理": {
+        "status": "Pass",
+        "actual": "Win10 原生测试要求先切换其他代理或显式 Direct，删除当前运行代理不会静默直连。",
+        "evidence": [
+          "docs/validation/windows10-contract-tests.md",
+          "docs/validation/evidence/windows10-rust-tests.json"
+        ]
+      }
+    }
+  }
+}

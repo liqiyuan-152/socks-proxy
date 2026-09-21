@@ -1,0 +1,20 @@
+[36mINFO[0m[0000] network: updated default interface WLAN, index 11
+[36mINFO[0m[0000] inbound/mixed[allow]: tcp server started at 127.0.0.1:18091
+[36mINFO[0m[0000] inbound/mixed[deny-ssh]: tcp server started at 127.0.0.1:18092
+[36mINFO[0m[0000] sing-box started (0.03s)
+[36mINFO[0m[0000] network: updated network environment: gateway 10.168.1.1, gateway_mac fc:a0:5a:08:02:a0
+[36mINFO[0m[0002] [[38;5;157m3618323530[0m 0ms] inbound/mixed[allow]: inbound connection from 127.0.0.1:49638
+[36mINFO[0m[0002] [[38;5;157m3618323530[0m 0ms] inbound/mixed[allow]: inbound connection to 127.0.0.1:22
+[36mINFO[0m[0002] [[38;5;157m3618323530[0m 0ms] outbound/direct[direct]: outbound connection to 127.0.0.1:22
+[37mDEBUG[0m[0002] [[38;5;157m3618323530[0m 60ms] connection: connection upload finished
+[36mINFO[0m[0002] [[38;5;134m2232847478[0m 0ms] inbound/mixed[allow]: inbound connection from 127.0.0.1:49640
+[36mINFO[0m[0002] [[38;5;134m2232847478[0m 0ms] inbound/mixed[allow]: inbound packet connection to 127.0.0.1:18401
+[36mINFO[0m[0002] [[38;5;134m2232847478[0m 0ms] outbound/direct[direct]: outbound packet connection
+[36mINFO[0m[0003] [[38;5;223m2647788552[0m 0ms] inbound/mixed[allow]: inbound connection from 127.0.0.1:49643
+[36mINFO[0m[0003] [[38;5;223m2647788552[0m 1ms] inbound/mixed[allow]: inbound connection to 127.0.0.1:22
+[36mINFO[0m[0003] [[38;5;223m2647788552[0m 3ms] outbound/direct[direct]: outbound connection to 127.0.0.1:22
+[37mDEBUG[0m[0003] [[38;5;223m2647788552[0m 23ms] connection: connection upload finished
+[36mINFO[0m[0005] [[38;5;45m470363421[0m 0ms] inbound/mixed[deny-ssh]: inbound connection from 127.0.0.1:49645
+[36mINFO[0m[0005] [[38;5;45m470363421[0m 4ms] inbound/mixed[deny-ssh]: inbound connection to 127.0.0.1:22
+[37mDEBUG[0m[0005] [[38;5;45m470363421[0m 5ms] router: match[0] inbound=deny-ssh port=22 => reject
+[37mDEBUG[0m[0005] [[38;5;45m470363421[0m 6ms] router: connection closed: rejected

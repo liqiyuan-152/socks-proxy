@@ -1,0 +1,235 @@
+--- a/experimental/cachefile/cache.go
++++ b/experimental/cachefile/cache.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"context"
+ 	"errors"
++	"fmt"
+ 	"net/netip"
+ 	"os"
+ 	"strings"
+@@ -47,6 +48,7 @@
+ 	cacheID            []byte
+ 	cacheIDText        string
+ 	storeFakeIP        bool
++	strictMode         bool
+ 	storeRDRC          bool
+ 	storeDNS           bool
+ 	disableExpire      bool
+@@ -109,6 +111,7 @@
+ 		cacheID:      cacheIDBytes,
+ 		cacheIDText:  options.CacheID,
+ 		storeFakeIP:  options.StoreFakeIP,
++		strictMode:   options.StrictMode,
+ 		storeRDRC:    options.StoreRDRC,
+ 		storeDNS:     options.StoreDNS,
+ 		rdrcTimeout:  rdrcTimeout,
+@@ -171,6 +174,11 @@
+ 
+ func (c *CacheFile) start() error {
+ 	const fileMode = 0o666
++	if c.strictMode {
++		if err := validateStrictCache(c.path); err != nil {
++			return E.Cause(err, "STRICT_CACHE_ERROR: existing cache retained; explicit recovery required")
++		}
++	}
+ 	cacheFile, err := filemanager.OpenFile(c.ctx, c.path, os.O_RDWR|os.O_CREATE, fileMode)
+ 	if err != nil {
+ 		return err
+@@ -184,6 +192,9 @@
+ 			if errors.Is(err, bboltErrors.ErrTimeout) {
+ 				continue
+ 			}
++			if c.strictMode {
++				return E.Cause(err, "STRICT_CACHE_ERROR: cache open failed; retained")
++			}
+ 			if E.IsMulti(err, bboltErrors.ErrInvalid, bboltErrors.ErrChecksum, bboltErrors.ErrVersionMismatch) {
+ 				rmErr := filemanager.Remove(c.ctx, c.path)
+ 				if rmErr != nil {
+@@ -196,6 +207,10 @@
+ 		err = checkDatabase(db)
+ 		if err == nil {
+ 			break
++		}
++		if c.strictMode {
++			db.Close()
++			return E.Cause(err, "STRICT_CACHE_ERROR: cache integrity failed; retained")
+ 		}
+ 		c.logger.Error("database corrupted: ", err, ": resetting")
+ 		db.Close()
+@@ -310,6 +325,12 @@
+ }
+ 
+ func (c *CacheFile) resetDB(failedDB *bbolt.DB, reason any) {
++	if c.strictMode {
++		// Exit before any reset or further address allocation. The supervising
++		// desktop process owns route recovery; the corrupt file stays intact.
++		fmt.Fprintln(os.Stderr, "STRICT_CACHE_ERROR: runtime corruption; cache retained; explicit recovery required")
++		os.Exit(78)
++	}
+ 	c.dbAccess.Lock()
+ 	defer c.dbAccess.Unlock()
+ 	if c.DB != failedDB {
+@@ -472,3 +493,29 @@
+ 		return bucket.Put([]byte(tag), setBinary)
+ 	})
+ }
++
++// Validate an existing database read-only: bbolt initializes empty files on
++// writable open, which would otherwise erase evidence of a truncated cache.
++func validateStrictCache(path string) (err error) {
++	info, err := os.Stat(path)
++	if errors.Is(err, os.ErrNotExist) {
++		return nil // first use; the supervisor tracks previously initialized caches
++	}
++	if err != nil {
++		return err
++	}
++	if info.Size() == 0 {
++		return E.New("empty existing cache")
++	}
++	defer func() {
++		if recover() != nil {
++			err = E.New("cache integrity check panicked")
++		}
++	}()
++	db, err := bbolt.Open(path, 0o600, &bbolt.Options{ReadOnly: true, Timeout: time.Second})
++	if err != nil {
++		return err
++	}
++	defer db.Close()
++	return checkDatabase(db)
++}
+--- a/option/experimental.go
++++ b/option/experimental.go
+@@ -10,6 +10,7 @@
+ }
+ 
+ type CacheFileOptions struct {
++	StrictMode  bool               `json:"strict_mode,omitempty"`
+ 	Enabled     bool               `json:"enabled,omitempty"`
+ 	Path        string             `json:"path,omitempty"`
+ 	CacheID     string             `json:"cache_id,omitempty"`
+--- /dev/null
++++ b/experimental/cachefile/strict_test.go
+@@ -0,0 +1,120 @@
++package cachefile
++
++import (
++	"bytes"
++	"context"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/sagernet/bbolt"
++	"github.com/sagernet/sing-box/log"
++	"github.com/sagernet/sing-box/option"
++)
++
++func strictCache(path string, strict bool) *CacheFile {
++	return New(context.Background(), log.NewNOPFactory().Logger(), option.CacheFileOptions{Path: path, StrictMode: strict, StoreFakeIP: true})
++}
++func TestStrictPreservesInvalidFiles(t *testing.T) {
++	for _, data := range [][]byte{{}, []byte("corrupted-test-database")} {
++		path := filepath.Join(t.TempDir(), "cache.db")
++		if err := os.WriteFile(path, data, 0600); err != nil {
++			t.Fatal(err)
++		}
++		if err := strictCache(path, true).start(); err == nil || !strings.Contains(err.Error(), "STRICT_CACHE_ERROR") {
++			t.Fatalf("expected strict failure: %v", err)
++		}
++		got, err := os.ReadFile(path)
++		if err != nil || !bytes.Equal(got, data) {
++			t.Fatalf("cache altered: %v", err)
++		}
++	}
++}
++func TestStrictFreshAndReopen(t *testing.T) {
++	path := filepath.Join(t.TempDir(), "cache.db")
++	c := strictCache(path, true)
++	if err := c.start(); err != nil {
++		t.Fatal(err)
++	}
++	if err := c.StoreMode("rule"); err != nil {
++		t.Fatal(err)
++	}
++	if err := c.Close(); err != nil {
++		t.Fatal(err)
++	}
++	c = strictCache(path, true)
++	if err := c.start(); err != nil {
++		t.Fatal(err)
++	}
++	defer c.Close()
++	if got := c.LoadMode(); got != "rule" {
++		t.Fatalf("lost value: %s", got)
++	}
++}
++func TestLegacyStillResets(t *testing.T) {
++	path := filepath.Join(t.TempDir(), "cache.db")
++	os.WriteFile(path, []byte("invalid"), 0600)
++	c := strictCache(path, false)
++	if err := c.start(); err != nil {
++		t.Fatal(err)
++	}
++	c.Close()
++}
++func TestStrictRuntimeStopsBeforeReset(t *testing.T) {
++	if path := os.Getenv("STRICT_CACHE_TEST_PATH"); path != "" {
++		c := strictCache(path, true)
++		if err := c.start(); err != nil {
++			panic(err)
++		}
++		snapshot, err := os.ReadFile(path)
++		if err != nil {
++			panic(err)
++		}
++		if err := os.WriteFile(path+".before", snapshot, 0600); err != nil {
++			panic(err)
++		}
++		fault := func(*bbolt.Tx) error { panic("injected database corruption") }
++		switch os.Getenv("STRICT_CACHE_TEST_OPERATION") {
++		case "view":
++			c.view(fault)
++		case "batch":
++			c.batch(fault)
++		case "update":
++			c.update(fault)
++		}
++		os.Exit(99)
++	}
++	for _, operation := range []string{"view", "batch", "update"} {
++		t.Run(operation, func(t *testing.T) {
++			path := filepath.Join(t.TempDir(), "cache.db")
++			c := strictCache(path, true)
++			if err := c.start(); err != nil {
++				t.Fatal(err)
++			}
++			if err := c.StoreMode("retained"); err != nil {
++				t.Fatal(err)
++			}
++			c.Close()
++			cmd := exec.Command(os.Args[0], "-test.run=^TestStrictRuntimeStopsBeforeReset$")
++			cmd.Env = append(os.Environ(), "STRICT_CACHE_TEST_PATH="+path, "STRICT_CACHE_TEST_OPERATION="+operation)
++			output, err := cmd.CombinedOutput()
++			exit, ok := err.(*exec.ExitError)
++			if !ok || exit.ExitCode() != 78 || !bytes.Contains(output, []byte("STRICT_CACHE_ERROR")) {
++				t.Fatalf("wrong exit: %v %s", err, output)
++			}
++			before, err := os.ReadFile(path + ".before")
++			if err != nil {
++				t.Fatal(err)
++			}
++			after, err := os.ReadFile(path)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if !bytes.Equal(before, after) {
++				t.Fatal("runtime reset modified database")
++			}
++		})
++	}
++}

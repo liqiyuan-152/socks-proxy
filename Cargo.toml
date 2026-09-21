@@ -1,0 +1,34 @@
+[package]
+name = "socks-proxy"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+build = "build.rs"
+
+[dependencies]
+eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "wgpu"] }
+idna = "1.1.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+uuid = { version = "1.18.1", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+muda = "0.20.0"
+rfd = "0.17.2"
+tray-icon = "0.25.1"
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_JobObjects",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+] }
+
+[patch.crates-io]
+tray-icon = { path = "third_party/tray-icon-0.25.1" }

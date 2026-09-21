@@ -1,0 +1,6 @@
+{
+  "Name": "corrupt-cache-fails-startup",
+  "Pass": false,
+  "Exited": false,
+  "ExitCode": null
+}

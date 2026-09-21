@@ -1,0 +1,32 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 10 Pro 10.0.19045 x64",
+  "applicationSha256": "78274ed9465f6ec0c757b40722728e8bdffe8bca97144538d6c37c8c53c538a9",
+  "initialStatus": "Socks Proxy - 运行异常 - Exit fixture",
+  "direct": {
+    "menuStatus": "Socks Proxy - 全局直连",
+    "tooltip": "Socks Proxy - 全局直连",
+    "windowCaptureSha256": "f67b4ac9e8909849d0d6de74c3a07a2d9c691b989eef50d370323b271bd20928",
+    "coreProcesses": 0
+  },
+  "rules": {
+    "menuStatus": "Socks Proxy - 规则代理 - Exit fixture",
+    "tooltip": "Socks Proxy - 规则代理 - Exit fixture",
+    "windowCaptureSha256": "0af4a1cb1a86c718ea9c662c95fdef2caafcf2ababaf8ddc23f7ae628cbc2eac",
+    "coreProcesses": 1
+  },
+  "error": {
+    "menuStatus": "Socks Proxy - 运行异常 - Exit fixture",
+    "tooltip": "Socks Proxy - 运行异常 - Exit fixture",
+    "windowCaptureSha256": "79065f55f5969989f255f830a2671ac0e1d6767296e13932e774ef229681d89b",
+    "iconRedPixels": 119
+  },
+  "cleanup": {
+    "applicationProcesses": 0,
+    "coreProcesses": 0,
+    "tunAdapters": 0,
+    "ownedPnpDevices": 0,
+    "ownedRoutes": 0,
+    "lastAppliedMode": "rules"
+  }
+}

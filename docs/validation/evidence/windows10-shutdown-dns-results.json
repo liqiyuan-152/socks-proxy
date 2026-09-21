@@ -1,0 +1,46 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 10 Pro 10.0.19045 x64",
+  "environment": "OpenSpec-Win10-Clean Hyper-V VM, interactive Session 1",
+  "application": {
+    "sha256": "bb34d31f9388610a7dfd7e221de4bb34c190024ac4c521825717c73cdb8e4dad"
+  },
+  "core": {
+    "version": "1.14.1-socks-proxy.2",
+    "sha256": "40a64f2973858203468da544db40c6d546f14fd8f02ffa389544e16bb776927a1"
+  },
+  "shutdown_dns_helper": {
+    "sha256": "eae3a11354b7be9cfc58be157ac188fa687f1a08adb9411da55bd603fd1c6f5c",
+    "confirmation_required": true,
+    "fake_addresses": [
+      "198.18.0.2",
+      "fc00::2"
+    ],
+    "direct_addresses_after_shutdown": [
+      "172.66.147.243",
+      "104.20.23.154"
+    ],
+    "shutdown_direct": true,
+    "last_mode_preserved": true,
+    "application_cache_notice": true
+  },
+  "proxy_mode_tray_exit": {
+    "initial_mode": "rules",
+    "profile": "Exit fixture",
+    "menu_status": "Socks Proxy - 规则代理 - Exit fixture",
+    "page_entries_reached": [
+      "状态",
+      "代理管理...",
+      "规则管理...",
+      "查看连接日志...",
+      "设置..."
+    ],
+    "exit_clicked": true,
+    "application_processes_after_exit": 0,
+    "core_processes_after_exit": 0,
+    "tun_adapters_after_exit": 0,
+    "owned_pnp_devices_after_exit": 0,
+    "owned_routes_after_exit": 0,
+    "last_applied_mode_after_exit": "rules"
+  }
+}

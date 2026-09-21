@@ -1,0 +1,25 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 10 Pro 10.0.19045 x64",
+  "cleanBaseline": {
+    "systemSetupInProgress": 0,
+    "applicationInstalled": false,
+    "installerRecords": 0,
+    "snapshot": "Before-Socks-Proxy-0.1.0-Final"
+  },
+  "installerSha256": "c081f7771565be32f7f2af25c8eea13319506f6afc89cd2d121aeb68820f18b7",
+  "applicationSha256": "7587f23e4263421a81aac9aa6ff65774495c02e999a29ef270aac57cfd2f1f3d",
+  "installedPayload": true,
+  "startMenuEntry": true,
+  "coreHashVerified": true,
+  "uacManifest": true,
+  "guiSubsystem": true,
+  "webViewAbsent": true,
+  "dynamicMsvcRuntimeAbsent": true,
+  "recoveryCommand": true,
+  "sameVersionUpgrade": true,
+  "uninstallRemovedFiles": true,
+  "uninstallRemovedShortcut": true,
+  "coreProcessesAfterUninstall": 0,
+  "tunAdaptersAfterUninstall": 0
+}

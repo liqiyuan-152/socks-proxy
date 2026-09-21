@@ -1,0 +1,17 @@
+{
+  "date": "2026-09-21",
+  "hostOs": "Windows 11 Pro 10.0.26200 x64",
+  "hyperVEnabled": true,
+  "officialWindows10Iso": "Win10_22H2_English_x64v1.iso",
+  "officialWindows11Iso": "Win11_25H2_English_x64_v2.iso",
+  "windows10SetupBooted": true,
+  "windows10ImageApplied": true,
+  "windows10ProSelected": true,
+  "unattendWindowsPeProcessed": true,
+  "unattendErrors": 0,
+  "oobeSystemProcessed": false,
+  "powerShellDirectReady": false,
+  "cleanMachineInstallerExecuted": false,
+  "result": "blocked",
+  "blocker": "The guest remained in OOBE without creating the unattended local account, while the SSH-only host session provided no interactive VM console to finish OOBE."
+}

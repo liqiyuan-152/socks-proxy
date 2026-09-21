@@ -1,0 +1,10 @@
+{
+  "date": "2026-09-21",
+  "platform": "Windows 11 Pro 10.0.26200 x64",
+  "trayCreated": true,
+  "singleInstance": true,
+  "windowCloseObserved": false,
+  "windowCloseKeepsProcess": false,
+  "interactiveDesktopAvailable": false,
+  "taskComplete": false
+}

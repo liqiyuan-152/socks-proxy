@@ -1,0 +1,18 @@
+{
+  "upstream_tag": "v1.14.1",
+  "commit": "1ac1a339cb1223e9c70eae14c44411c75033c02d",
+  "source_url": "https://codeload.github.com/SagerNet/sing-box/tar.gz/1ac1a339cb1223e9c70eae14c44411c75033c02d",
+  "source_sha256": "8420c7723828a8d9d062c3fafee28c7b7e0d20a4c904fa7ff283f6e884edd537",
+  "version": "1.14.1-socks-proxy.2",
+  "go_version": "go1.26.7",
+  "tags": [
+    "with_gvisor",
+    "with_clash_api"
+  ],
+  "wintun": {
+    "version": "0.14.1",
+    "url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+    "archive_sha256": "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51",
+    "amd64_dll_sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+  }
+}

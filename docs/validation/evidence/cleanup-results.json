@@ -1,0 +1,7 @@
+{
+  "OwnedCoreProcesses": 0,
+  "TestTcpListeners": 0,
+  "TestUdpListeners": 0,
+  "TestRoutes": 0,
+  "CleanupPass": true
+}

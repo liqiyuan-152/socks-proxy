@@ -1,0 +1,206 @@
+{
+    "sessionId":  1,
+    "iconRect":  {
+                     "left":  811,
+                     "top":  728,
+                     "right":  835,
+                     "bottom":  768,
+                     "overflow":  false
+                 },
+    "directIconGreenPixels":  127,
+    "initialWindowVisible":  true,
+    "initialTrayErrorAbsent":  true,
+    "leftClickHidWindow":  null,
+    "leftClickRestoredWindow":  null,
+    "closeHidWindow":  null,
+    "closeKeptProcess":  null,
+    "restoredAfterClose":  null,
+    "menuNames":  [
+                      "Socks Proxy - 全局直连",
+                      "separator",
+                      "代理模式",
+                      "切换代理",
+                      "状态",
+                      "代理管理...",
+                      "规则管理...",
+                      "查看连接日志...",
+                      "设置...",
+                      "separator",
+                      "退出"
+                  ],
+    "menuItems":  [
+                      {
+                          "name":  "Socks Proxy - 全局直连",
+                          "controlType":  "ControlType.MenuItem",
+                          "enabled":  false,
+                          "toggleState":  null,
+                          "bounds":  {
+                                         "left":  814,
+                                         "top":  533,
+                                         "right":  1021,
+                                         "bottom":  555
+                                     }
+                      },
+                      {
+                          "name":  "separator",
+                          "controlType":  "ControlType.Separator",
+                          "enabled":  false,
+                          "toggleState":  null,
+                          "bounds":  {
+                                         "left":  814,
+                                         "top":  555,
+                                         "right":  1021,
+                                         "bottom":  562
+                                     }
+                      },
+                      {
+                          "name":  "代理模式",
+                          "controlType":  "ControlType.MenuItem",
+                          "enabled":  true,
+                          "toggleState":  null,
+                          "bounds":  {
+                                         "left":  814,
+                                         "top":  562,
+                                         "right":  1021,
+                                         "bottom":  584
+                                     }
+                      },
+                      {
+                          "name":  "切换代理",
+                          "controlType":  "ControlType.MenuItem",
+                          "enabled":  true,
+                          "toggleState":  null,
+                          "bounds":  {
+                                         "left":  814,
+                                         "top":  584,
+                                         "right":  1021,
+                                         "bottom":  606
+                                     }
+                      },
+                      {
+                          "name":  "状态",
+                          "controlType":  "ControlType.MenuItem",
+                          "enabled":  true,
+                          "toggleState":  null,
+                          "bounds":  {
+                                         "left":  814,
+                                         "top":  606,
+                                         "right":  1021,
+                                         "bottom":  628
+                                     }
+                      },
+                      {
+                          "name":  "代理管理...",
+                          "controlType":  "ControlType.MenuItem",
+                          "enabled":  true,
+                          "toggleState":  null,
+                          "bounds":  {
+                                         "left":  814,
+                                         "top":  628,
+                                         "right":  1021,
+                                         "bottom":  650
+                                     }
+                      },
+                      {
+                          "name":  "规则管理...",
+                          "controlType":  "ControlType.MenuItem",
+                          "enabled":  true,
+                          "toggleState":  null,
+                          "bounds":  {
+                                         "left":  814,
+                                         "top":  650,
+                                         "right":  1021,
+                                         "bottom":  672
+                                     }
+                      },
+                      {
+                          "name":  "查看连接日志...",
+                          "controlType":  "ControlType.MenuItem",
+                          "enabled":  true,
+                          "toggleState":  null,
+                          "bounds":  {
+                                         "left":  814,
+                                         "top":  672,
+                                         "right":  1021,
+                                         "bottom":  694
+                                     }
+                      },
+                      {
+                          "name":  "设置...",
+                          "controlType":  "ControlType.MenuItem",
+                          "enabled":  true,
+                          "toggleState":  null,
+                          "bounds":  {
+                                         "left":  814,
+                                         "top":  694,
+                                         "right":  1021,
+                                         "bottom":  716
+                                     }
+                      },
+                      {
+                          "name":  "separator",
+                          "controlType":  "ControlType.Separator",
+                          "enabled":  false,
+                          "toggleState":  null,
+                          "bounds":  {
+                                         "left":  814,
+                                         "top":  716,
+                                         "right":  1021,
+                                         "bottom":  723
+                                     }
+                      },
+                      {
+                          "name":  "退出",
+                          "controlType":  "ControlType.MenuItem",
+                          "enabled":  true,
+                          "toggleState":  null,
+                          "bounds":  {
+                                         "left":  814,
+                                         "top":  723,
+                                         "right":  1021,
+                                         "bottom":  745
+                                     }
+                      }
+                  ],
+    "modeNames":  [
+
+                  ],
+    "directMenuChecked":  true,
+    "pages":  [
+                  {
+                      "menu":  "状态",
+                      "windowVisible":  true,
+                      "captureHash":  "f3f89fef45d03244900f81a18c1da93a902108e6dca18447bd0f7038633ab1f1",
+                      "reached":  true
+                  },
+                  {
+                      "menu":  "代理管理...",
+                      "windowVisible":  true,
+                      "captureHash":  "1385b2d2ecdbe607c9359f419d3e7e34f8457afea514cd49622f0dec9d7e01b2",
+                      "reached":  true
+                  },
+                  {
+                      "menu":  "规则管理...",
+                      "windowVisible":  true,
+                      "captureHash":  "65c39b2710aa28107c70c0cf422a0a237c9a41a34dc09b311f7bedecae1917af",
+                      "reached":  true
+                  },
+                  {
+                      "menu":  "查看连接日志...",
+                      "windowVisible":  true,
+                      "captureHash":  "34fceb376cb8ac11a437a133b686726c0d21dc9d63eeedfdec8e424175448721",
+                      "reached":  true
+                  },
+                  {
+                      "menu":  "设置...",
+                      "windowVisible":  true,
+                      "captureHash":  "bc7a30577919ff12e7d5443706d37dc254c2412cb43b3ec9826314b05b72ed69",
+                      "reached":  true
+                  }
+              ],
+    "processExited":  true,
+    "coreProcessesAfterExit":  0,
+    "tunAdaptersAfterExit":  0,
+    "routesUnchanged":  true,
+    "dnsUnchanged":  true
+}

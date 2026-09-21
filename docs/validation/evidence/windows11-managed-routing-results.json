@@ -1,0 +1,137 @@
+[
+    {
+        "Name":  "browser-domain-priority",
+        "Pass":  true,
+        "ExpectedSuccess":  true,
+        "ActualSuccess":  true,
+        "ExpectedRoute":  "proxy",
+        "RouteEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "ssh-domain-priority",
+        "Pass":  true,
+        "ExpectedSuccess":  true,
+        "ActualSuccess":  true,
+        "ExpectedRoute":  "proxy",
+        "RouteEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "browser-ipv4-rule",
+        "Pass":  true,
+        "ExpectedSuccess":  true,
+        "ActualSuccess":  true,
+        "ExpectedRoute":  "proxy",
+        "RouteEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "browser-single-ip-rule",
+        "Pass":  true,
+        "ExpectedSuccess":  true,
+        "ActualSuccess":  true,
+        "ExpectedRoute":  "proxy",
+        "RouteEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "browser-range-rule",
+        "Pass":  true,
+        "ExpectedSuccess":  true,
+        "ActualSuccess":  true,
+        "ExpectedRoute":  "proxy",
+        "RouteEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "browser-multi-any-rule",
+        "Pass":  true,
+        "ExpectedSuccess":  true,
+        "ActualSuccess":  true,
+        "ExpectedRoute":  "proxy",
+        "RouteEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "browser-ipv6-rule",
+        "Pass":  true,
+        "ExpectedSuccess":  true,
+        "ActualSuccess":  true,
+        "ExpectedRoute":  "proxy",
+        "RouteEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "browser-remote-private-rule",
+        "Pass":  true,
+        "ExpectedSuccess":  true,
+        "ActualSuccess":  true,
+        "ExpectedRoute":  "proxy",
+        "RouteEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "unmatched-direct-with-dead-proxy",
+        "Pass":  true,
+        "ExpectedSuccess":  true,
+        "ActualSuccess":  true,
+        "ExpectedRoute":  "direct",
+        "RouteEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "domain-no-fallback-dead-proxy",
+        "Pass":  true,
+        "ExpectedSuccess":  false,
+        "ActualSuccess":  false,
+        "ExpectedRoute":  "proxy",
+        "RouteEvidence":  true,
+        "ExitCode":  22
+    },
+    {
+        "Name":  "proxy-resolution-failure-no-fallback",
+        "Pass":  true,
+        "ExpectedSuccess":  false,
+        "ActualSuccess":  false,
+        "ExpectedRoute":  "proxy",
+        "RouteEvidence":  true,
+        "ExitCode":  22
+    },
+    {
+        "Name":  "direct-dns-unavailable",
+        "Pass":  true,
+        "ExpectedSuccess":  false,
+        "ActualSuccess":  false,
+        "ExpectedRoute":  "",
+        "RouteEvidence":  true,
+        "ExitCode":  22
+    },
+    {
+        "Name":  "global-all-private-direct",
+        "Pass":  true,
+        "ExpectedSuccess":  true,
+        "ActualSuccess":  true,
+        "ExpectedRoute":  "direct",
+        "RouteEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "global-public-proxy",
+        "Pass":  true,
+        "ExpectedSuccess":  true,
+        "ActualSuccess":  true,
+        "ExpectedRoute":  "proxy",
+        "RouteEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "global-mixed-proxy",
+        "Pass":  true,
+        "ExpectedSuccess":  true,
+        "ActualSuccess":  true,
+        "ExpectedRoute":  "proxy",
+        "RouteEvidence":  true,
+        "ExitCode":  0
+    }
+]

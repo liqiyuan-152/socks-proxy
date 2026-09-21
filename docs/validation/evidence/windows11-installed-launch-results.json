@@ -1,0 +1,25 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 11 Pro 10.0.26200 x64",
+  "installerSha256": "6e7d0fbb81a36d4b0e7d3cc9ebfda4fa7c0d3590a2b1f6543fbea8efd9d0d11e",
+  "applicationSha256": "70a214f1349a26f72f5db94d0f655f633b39ce005184932a506e0ddbcdda6ad7",
+  "startMenuShortcut": true,
+  "sessionId": 12,
+  "desktopUnlocked": true,
+  "applicationProcesses": 1,
+  "applicationSessionId": 12,
+  "applicationWindows": 1,
+  "visibleWindowClasses": [
+    "Window Class",
+    "Winit Thread Event Target"
+  ],
+  "consoleWindows": 0,
+  "trayIcons": 1,
+  "trayAccessibleName": "Socks Proxy - 1 个运行窗口",
+  "coreProcesses": 0,
+  "webViewProcessesBefore": 18,
+  "webViewProcessesAfter": 18,
+  "windowCapture": "docs/validation/evidence/windows11-installed-launch.png",
+  "windowCaptureMethod": "PrintWindow",
+  "foregroundWindowRendered": true
+}

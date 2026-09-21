@@ -1,0 +1,43 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 10 Pro 10.0.19045 x64",
+  "environment": "OpenSpec-Win10-Clean Hyper-V VM",
+  "core": {
+    "version": "1.14.1-socks-proxy.2",
+    "sha256": "40a64f2973858203468da544db40c6d546f14fd8f02ffa389544e16bb776927a1"
+  },
+  "settings_backup": {
+    "executable_sha256": "837977bf417bba207a73ada122775b1f12d11139b2f999be791d22cb68abb9af",
+    "first_launch_direct": true,
+    "startup_disabled": true,
+    "secret_free": true,
+    "preview_missing_credentials": true,
+    "import_applied_direct": true
+  },
+  "network_recovery": {
+    "executable_sha256": "288629e4b04d5428f61aa0e5496134c66ee936f6f2dbeaf4841c733841444e87",
+    "external_setting_preserved": true,
+    "restore_retry": true,
+    "dns_flush_retry": true,
+    "application_cache_notice": true,
+    "journal_cleared": true,
+    "last_mode_unchanged": true
+  },
+  "process_core": {
+    "executable_sha256": "c2430d03f94e624c9190bccce4db57f043544c5ff95581bd6bfe7473b2b1de19",
+    "version": "1.14.1-socks-proxy.2",
+    "ready": true,
+    "hidden_process": true,
+    "stopped": true,
+    "temporary_removed": true
+  },
+  "runtime_failure": {
+    "executable_sha256": "5a25342e23a83917c6ddefdaf6d12a08558a17a7d4a3d7613ac736f5c2012430",
+    "exit_detected": true,
+    "error_visible": true,
+    "traffic_may_be_direct": true,
+    "last_mode_preserved": true,
+    "retry_rules": true,
+    "direct_recovery": true
+  }
+}

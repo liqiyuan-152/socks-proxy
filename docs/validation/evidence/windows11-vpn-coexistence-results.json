@@ -1,0 +1,18 @@
+{
+  "date": "2026-09-21",
+  "platform": "Windows 11 Pro 10.0.26200 x64",
+  "vpnClient": "OpenVPN",
+  "vpnConnectedBeforeApp": true,
+  "vpnProcessSurvived": true,
+  "vpnAdapterSurvived": true,
+  "vpnRouteSurvived": true,
+  "rulesPath": true,
+  "proxySwitchPath": true,
+  "globalPath": true,
+  "applicationTunRemoved": true,
+  "vpnProcessesAfterCleanup": 0,
+  "testRoutesBeforeExplicitCleanup": 1,
+  "testRoutesAfterCleanup": 0,
+  "appTunAfterCleanup": 0,
+  "temporarySecretRemoved": true
+}

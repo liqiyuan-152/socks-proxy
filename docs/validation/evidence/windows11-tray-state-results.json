@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 11 Pro 10.0.26200 x64",
+  "applicationSha256": "70a214f1349a26f72f5db94d0f655f633b39ce005184932a506e0ddbcdda6ad7",
+  "initialStatus": "Socks Proxy - 全局直连",
+  "direct": {
+    "menuStatus": "Socks Proxy - 全局直连",
+    "tooltip": "Socks Proxy - 全局直连",
+    "windowCaptureSha256": "7d1a37b7a3776c283caad7de9a316dedb6e3acc959b7a211ead292c7cb3e195b",
+    "coreProcesses": 0
+  },
+  "rules": {
+    "menuStatus": "Socks Proxy - 规则代理 - Windows 11 fixture",
+    "uiaAccessibleName": "Socks Proxy - 全局直连 Socks Proxy - 规则代理 - Windows 11 fixture",
+    "windowCaptureSha256": "804ccec62835f885cc71d88bda11dbb771b7d3a71cce32da0485e2de7f778d5e",
+    "coreProcesses": 1
+  },
+  "error": {
+    "menuStatus": "Socks Proxy - 运行异常 - Windows 11 fixture",
+    "uiaAccessibleName": "Socks Proxy - 全局直连 Socks Proxy - 运行异常 - Windows 11 fixture",
+    "windowCaptureSha256": "0eeb093b146b5e42ba4a21743e035d45baef33d70f1e2621d7bee8c8fb50a03d",
+    "iconRedPixels": 119
+  },
+  "cleanup": {
+    "applicationProcesses": 0,
+    "coreProcesses": 0,
+    "tunAdapters": 0,
+    "ownedPnpDevices": 0,
+    "ownedRoutes": 0,
+    "lastAppliedMode": "rules"
+  },
+  "notes": [
+    "Windows 11 Explorer exposes the hidden-icon button as SystemTray.NormalButton rather than AutomationId 1502.",
+    "Explorer UI Automation retains the previous tooltip in the accessible name after NIM_MODIFY; the latest state is present and the tray menu status is exact."
+  ]
+}

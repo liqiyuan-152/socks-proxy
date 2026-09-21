@@ -1,0 +1,86 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 10 Pro 10.0.19045 x64",
+  "environment": "OpenSpec-Win10-Clean Hyper-V VM",
+  "core": {
+    "version": "1.14.1-socks-proxy.2",
+    "sha256": "40a64f2973858203468da544db40c6d546f14fd8f02ffa389544e16bb776927a1"
+  },
+  "core_smoke": [
+    {"name": "direct-baseline", "pass": true},
+    {"name": "socks-none", "pass": true},
+    {"name": "socks-valid", "pass": true},
+    {"name": "socks-wrong", "pass": true},
+    {"name": "http-none", "pass": true},
+    {"name": "http-valid", "pass": true},
+    {"name": "http-wrong", "pass": true},
+    {"name": "tun-tcp-forward", "pass": true},
+    {"name": "tun-route-cleanup", "pass": true},
+    {"name": "direct-after-tun", "pass": true}
+  ],
+  "core_smoke_post_cleanup": {"owned_pnp_removed": 1, "owned_pnp_remaining": 0},
+  "routing": [
+    {"name": "dns-direct-with-dead-proxy", "pass": true, "route": "direct", "curl_exit": 0},
+    {"name": "dns-cidr", "pass": true, "route": "proxy", "curl_exit": 0},
+    {"name": "dns-multi-any", "pass": true, "route": "proxy", "curl_exit": 0},
+    {"name": "dns-ipv6-cidr", "pass": true, "route": "proxy", "curl_exit": 0},
+    {"name": "dns-domain-dead-proxy", "pass": true, "route": "proxy", "curl_exit": 56},
+    {"name": "dns-cidr-dead-proxy", "pass": true, "route": "proxy", "curl_exit": 22},
+    {"name": "dns-upstream-unavailable", "pass": true, "route": "failure", "curl_exit": 56}
+  ],
+  "managed_routing": [
+    {"name": "browser-domain-priority", "pass": true, "route": "proxy"},
+    {"name": "ssh-domain-priority", "pass": true, "route": "proxy"},
+    {"name": "browser-ipv4-rule", "pass": true, "route": "proxy"},
+    {"name": "browser-single-ip-rule", "pass": true, "route": "proxy"},
+    {"name": "browser-range-rule", "pass": true, "route": "proxy"},
+    {"name": "browser-multi-any-rule", "pass": true, "route": "proxy"},
+    {"name": "browser-ipv6-rule", "pass": true, "route": "proxy"},
+    {"name": "browser-remote-private-rule", "pass": true, "route": "proxy"},
+    {"name": "unmatched-direct-with-dead-proxy", "pass": true, "route": "direct"},
+    {"name": "domain-no-fallback-dead-proxy", "pass": true, "route": "proxy-failure"},
+    {"name": "proxy-resolution-failure-no-fallback", "pass": true, "route": "proxy-failure"},
+    {"name": "direct-dns-unavailable", "pass": true, "route": "dns-failure"},
+    {"name": "global-all-private-direct", "pass": true, "route": "direct"},
+    {"name": "global-public-proxy", "pass": true, "route": "proxy"},
+    {"name": "global-mixed-proxy", "pass": true, "route": "proxy"}
+  ],
+  "fakeip": [
+    {"name": "fakeip-distinct", "pass": true, "alpha": "198.18.0.2", "beta": "198.18.0.3"},
+    {"name": "fakeip-persist-after-forced-stop", "pass": true, "alpha": "198.18.0.2", "beta": "198.18.0.3"},
+    {"name": "unknown-fakeip-rejected", "pass": true, "curl_exit": 22}
+  ],
+  "corrupt_cache": {
+    "pass": true,
+    "exited": true,
+    "exit_code": 1,
+    "cache_preserved": true
+  },
+  "protocol_runs": [
+    {
+      "fixture": "no local SSH listener",
+      "ssh_via_socks": false,
+      "udp_via_socks": true,
+      "ssh_via_http": false,
+      "udp_via_http_rejected": true,
+      "http_connect_22_rejected": true
+    },
+    {
+      "fixture": "controlled SSH banner listener",
+      "ssh_via_socks": true,
+      "udp_via_socks": false,
+      "ssh_via_http": true,
+      "udp_via_http_rejected": true,
+      "http_connect_22_rejected": true
+    },
+    {
+      "fixture": "controlled SSH banner listener with two-second fixture readiness wait",
+      "ssh_via_socks": true,
+      "udp_via_socks": true,
+      "ssh_via_http": true,
+      "udp_via_http_rejected": true,
+      "http_connect_22_rejected": true
+    }
+  ],
+  "protocol_note": "The earlier transient failures were caused by PowerShell background jobs not yet listening on Windows 10. The final run passed all five checks after an explicit two-second readiness wait."
+}

@@ -1,0 +1,69 @@
+[
+  {
+    "Name": "direct-baseline",
+    "ExpectedSuccess": true,
+    "ActualSuccess": true,
+    "CurlExit": 0,
+    "Pass": true
+  },
+  {
+    "Name": "socks-none",
+    "ExpectedSuccess": true,
+    "ActualSuccess": true,
+    "CurlExit": 0,
+    "Pass": true
+  },
+  {
+    "Name": "socks-valid",
+    "ExpectedSuccess": true,
+    "ActualSuccess": true,
+    "CurlExit": 0,
+    "Pass": true
+  },
+  {
+    "Name": "socks-wrong",
+    "ExpectedSuccess": false,
+    "ActualSuccess": false,
+    "CurlExit": 22,
+    "Pass": true
+  },
+  {
+    "Name": "http-none",
+    "ExpectedSuccess": true,
+    "ActualSuccess": true,
+    "CurlExit": 0,
+    "Pass": true
+  },
+  {
+    "Name": "http-valid",
+    "ExpectedSuccess": true,
+    "ActualSuccess": true,
+    "CurlExit": 0,
+    "Pass": true
+  },
+  {
+    "Name": "http-wrong",
+    "ExpectedSuccess": false,
+    "ActualSuccess": false,
+    "CurlExit": 56,
+    "Pass": true
+  },
+  {
+    "Name": "tun-tcp-forward",
+    "ExpectedSuccess": true,
+    "ActualSuccess": true,
+    "CurlExit": 0,
+    "Pass": true
+  },
+  {
+    "Name": "tun-route-cleanup",
+    "Pass": true
+  },
+  {
+    "Name": "direct-after-tun",
+    "ExpectedSuccess": true,
+    "ActualSuccess": true,
+    "CurlExit": 0,
+    "Pass": true
+  }
+]

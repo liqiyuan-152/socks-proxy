@@ -1,0 +1,32 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 11 Pro 10.0.26200 x64",
+  "applicationSha256": "70a214f1349a26f72f5db94d0f655f633b39ce005184932a506e0ddbcdda6ad7",
+  "initialStatus": "Socks Proxy - 规则代理 - Windows 11 fixture",
+  "topLevelMenuItems": [
+    "Socks Proxy - 规则代理 - Windows 11 fixture",
+    "分隔符",
+    "代理模式",
+    "切换代理",
+    "状态",
+    "代理管理...",
+    "规则管理...",
+    "查看连接日志...",
+    "设置...",
+    "分隔符",
+    "退出"
+  ],
+  "modeMenuItems": [
+    "规则代理",
+    "全局代理",
+    "全局直连"
+  ],
+  "proxyMenuItems": [
+    "Windows 11 fixture"
+  ],
+  "initialCoreCount": 1,
+  "windowHiddenAfterClose": true,
+  "applicationProcessesAfterClose": 1,
+  "coreProcessesAfterClose": 1,
+  "windowRestoredByTray": true
+}

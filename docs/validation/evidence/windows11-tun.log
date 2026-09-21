@@ -1,0 +1,11 @@
+[36mINFO[0m[0000] network: updated default interface WLAN, index 11
+[36mINFO[0m[0000] network: updated network environment: gateway 10.168.1.1, gateway_mac fc:a0:5a:08:02:a0
+[36mINFO[0m[0000] inbound/tun[tun-in]: started at socks-proxy-m0
+[36mINFO[0m[0000] sing-box started (0.41s)
+[37mDEBUG[0m[0001] [[38;5;95m397835343[0m 0ms] router: pre-match[0] ip_cidr=198.19.0.1/32 => route(direct,override-address=127.0.0.1,override-port=18080)
+[36mINFO[0m[0001] [[38;5;34m3109887250[0m 0ms] inbound/tun[tun-in]: inbound connection from 172.30.255.1:57972
+[36mINFO[0m[0001] [[38;5;34m3109887250[0m 0ms] inbound/tun[tun-in]: inbound connection to 198.19.0.1:18080
+[37mDEBUG[0m[0001] [[38;5;34m3109887250[0m 0ms] router: match[0] ip_cidr=198.19.0.1/32 => route(direct,override-address=127.0.0.1,override-port=18080)
+[36mINFO[0m[0001] [[38;5;34m3109887250[0m 0ms] outbound/direct[direct]: outbound connection to 127.0.0.1:18080
+[37mDEBUG[0m[0001] [[38;5;34m3109887250[0m 6ms] connection: connection download finished
+[37mDEBUG[0m[0001] [[38;5;34m3109887250[0m 6ms] connection: connection upload finished

@@ -1,0 +1,17 @@
+{
+  "date": "2026-09-21",
+  "platform": "Windows 11 Pro 10.0.26200 x64",
+  "target": "10.20.30.40:22",
+  "rulesConfirmation": true,
+  "proxyConfirmation": true,
+  "longActiveBeforeSwitch": true,
+  "longDisconnectedOnRestart": true,
+  "longSurvivedRestart": false,
+  "newSshAfterSwitch": true,
+  "upstreamASeen": true,
+  "upstreamBSeen": true,
+  "proxyRuleEvents": 0,
+  "explicitDirect": true,
+  "temporaryKeyRemoved": true,
+  "fixtureResourcesRemoved": true
+}

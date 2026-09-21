@@ -1,0 +1,109 @@
+--- a/option/rule.go
++++ b/option/rule.go
+@@ -155,6 +155,7 @@ type RawDefaultRule struct {
+ 	SourceIPIsPrivate        bool                                                                        `json:"source_ip_is_private,omitempty"`
+ 	IPCIDR                   badoption.Listable[string]                                                  `json:"ip_cidr,omitempty"`
+ 	IPIsPrivate              bool                                                                        `json:"ip_is_private,omitempty"`
++	IPAllPrivate             bool                                                                        `json:"ip_all_private,omitempty"`
+ 	SourcePort               badoption.Listable[uint16]                                                  `json:"source_port,omitempty"`
+ 	SourcePortRange          badoption.Listable[string]                                                  `json:"source_port_range,omitempty"`
+ 	Port                     badoption.Listable[uint16]                                                  `json:"port,omitempty"`
+--- a/route/rule/rule_default.go
++++ b/route/rule/rule_default.go
+@@ -157,6 +157,11 @@ func NewDefaultRule(router adapter.Router, logger log.ContextLogger, options op
+ 		rule.destinationIPCIDRItems = append(rule.destinationIPCIDRItems, item)
+ 		rule.allItems = append(rule.allItems, item)
+ 	}
++	if options.IPAllPrivate {
++		item := NewIPAllPrivateItem()
++		rule.destinationIPCIDRItems = append(rule.destinationIPCIDRItems, item)
++		rule.allItems = append(rule.allItems, item)
++	}
+ 	if len(options.SourcePort) > 0 {
+ 		item := NewPortItem(true, options.SourcePort)
+ 		rule.sourcePortItems = append(rule.sourcePortItems, item)
+--- a/route/rule/rule_item_ip_is_private.go
++++ b/route/rule/rule_item_ip_is_private.go
+@@ -6,6 +6,7 @@ import (
+ )
+ 
+ var _ RuleItem = (*IPIsPrivateItem)(nil)
++var _ RuleItem = (*IPAllPrivateItem)(nil)
+ 
+ type IPIsPrivateItem struct {
+ 	isSource bool
+@@ -42,3 +43,40 @@ func (r *IPIsPrivateItem) String() string {
+ 		return "ip_is_private=true"
+ 	}
+ }
++
++type IPAllPrivateItem struct{}
++
++func NewIPAllPrivateItem() *IPAllPrivateItem {
++	return &IPAllPrivateItem{}
++}
++
++func (r *IPAllPrivateItem) Match(metadata *adapter.InboundContext) bool {
++	if metadata.DestinationAddressMatchFromResponse {
++		addresses := metadata.DNSResponseAddressesForMatch()
++		if len(addresses) == 0 {
++			return false
++		}
++		for _, destinationAddress := range addresses {
++			if N.IsPublicAddr(destinationAddress) {
++				return false
++			}
++		}
++		return true
++	}
++	if metadata.Destination.Addr.IsValid() {
++		return !N.IsPublicAddr(metadata.Destination.Addr)
++	}
++	if len(metadata.DestinationAddresses) == 0 {
++		return false
++	}
++	for _, destinationAddress := range metadata.DestinationAddresses {
++		if N.IsPublicAddr(destinationAddress) {
++			return false
++		}
++	}
++	return true
++}
++
++func (r *IPAllPrivateItem) String() string {
++	return "ip_all_private=true"
++}
+--- /dev/null
++++ b/route/rule/rule_item_ip_all_private_test.go
+@@ -0,0 +1,31 @@
++package rule
++
++import (
++	"net/netip"
++	"testing"
++
++	"github.com/sagernet/sing-box/adapter"
++)
++
++func TestIPAllPrivate(t *testing.T) {
++	rule := NewIPAllPrivateItem()
++	tests := []struct {
++		name      string
++		addresses []netip.Addr
++		expected  bool
++	}{
++		{"empty", nil, false},
++		{"private-v4", []netip.Addr{netip.MustParseAddr("10.0.0.1")}, true},
++		{"private-v6", []netip.Addr{netip.MustParseAddr("fd00::1")}, true},
++		{"public", []netip.Addr{netip.MustParseAddr("203.0.113.10")}, false},
++		{"mixed", []netip.Addr{netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("203.0.113.10")}, false},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			metadata := &adapter.InboundContext{DestinationAddresses: test.addresses}
++			if actual := rule.Match(metadata); actual != test.expected {
++				t.Fatalf("expected %v, got %v", test.expected, actual)
++			}
++		})
++	}
++}

@@ -1,0 +1,28 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 11 Pro 10.0.26200 x64",
+  "applicationSha256": "70a214f1349a26f72f5db94d0f655f633b39ce005184932a506e0ddbcdda6ad7",
+  "sessionId": 12,
+  "elevated": false,
+  "cancelled": true,
+  "nativeErrorCode": 1223,
+  "exceptionChain": [
+    {
+      "type": "System.InvalidOperationException",
+      "hresult": -2146233079,
+      "nativeErrorCode": null
+    }
+  ],
+  "launchError": "由于出现以下错误，无法运行此命令: 操作已被用户取消。。",
+  "routesUnchanged": true,
+  "dnsUnchanged": true,
+  "appProcessesBefore": 0,
+  "appProcessesAfter": 0,
+  "coreProcessesBefore": 0,
+  "coreProcessesAfter": 0,
+  "tunAdaptersBefore": 0,
+  "tunAdaptersAfter": 0,
+  "ownedRoutesBefore": 0,
+  "ownedRoutesAfter": 0,
+  "cancelSystemMessage": "操作已被用户取消。"
+}

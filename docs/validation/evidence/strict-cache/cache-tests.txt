@@ -1,0 +1,15 @@
+=== RUN   TestStrictPreservesInvalidFiles
+--- PASS: TestStrictPreservesInvalidFiles (0.01s)
+=== RUN   TestStrictFreshAndReopen
+--- PASS: TestStrictFreshAndReopen (0.04s)
+=== RUN   TestLegacyStillResets
+--- PASS: TestLegacyStillResets (0.13s)
+=== RUN   TestStrictRuntimeStopsBeforeReset
+=== RUN   TestStrictRuntimeStopsBeforeReset/view
+=== RUN   TestStrictRuntimeStopsBeforeReset/batch
+=== RUN   TestStrictRuntimeStopsBeforeReset/update
+--- PASS: TestStrictRuntimeStopsBeforeReset (0.23s)
+    --- PASS: TestStrictRuntimeStopsBeforeReset/view (0.09s)
+    --- PASS: TestStrictRuntimeStopsBeforeReset/batch (0.07s)
+    --- PASS: TestStrictRuntimeStopsBeforeReset/update (0.08s)
+PASS

@@ -1,0 +1,12 @@
+[36mINFO[0m[0000] network: updated default interface WLAN, index 11
+[36mINFO[0m[0000] inbound/mixed[0]: tcp server started at 127.0.0.1:18093
+[36mINFO[0m[0000] inbound/direct[1]: udp server started at 127.0.0.1:18400
+[36mINFO[0m[0000] sing-box started (0.03s)
+[36mINFO[0m[0000] network: updated network environment: gateway 10.168.1.1, gateway_mac fc:a0:5a:08:02:a0
+[36mINFO[0m[0001] [[38;5;69m1343050037[0m 0ms] inbound/mixed[0]: inbound connection from 127.0.0.1:49642
+[36mINFO[0m[0001] [[38;5;69m1343050037[0m 0ms] inbound/mixed[0]: inbound connection to 127.0.0.1:22
+[36mINFO[0m[0001] [[38;5;69m1343050037[0m 0ms] outbound/http[proxy]: outbound connection to 127.0.0.1:22
+[37mDEBUG[0m[0001] [[38;5;69m1343050037[0m 24ms] connection: connection upload finished
+[36mINFO[0m[0001] [[38;5;224m940948688[0m 0ms] inbound/direct[1]: inbound packet connection from 127.0.0.1:55936
+[36mINFO[0m[0001] [[38;5;224m940948688[0m 0ms] inbound/direct[1]: inbound packet connection to 127.0.0.1:18401
+[31mERROR[0m[0001] [[38;5;224m940948688[0m 0ms] router: UDP is not supported by outbound: proxy

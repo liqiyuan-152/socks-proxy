@@ -1,0 +1,18 @@
+schema: spec-driven
+context: |
+  Language: zh-CN. Write artifacts in Chinese; keep structural headings and SHALL/MUST in English.
+  Greenfield Windows 10/11 x64 desktop proxy manager; no implementation exists yet.
+  Confirmed stack: Rust + egui/eframe, tray-icon + muda, sing-box CLI with TUN.
+  No HTML/CSS/JavaScript/WebView in the delivered application; no background service in MVP.
+  Multiple SOCKS5/HTTP profiles, one active proxy, optional credentials; rule/global/direct modes.
+  First launch is direct; later launches restore the last successfully applied mode.
+  Request administrator permission each launch; cancellation must not alter networking.
+  Requirements source: Codex task 01a0be4c-c049-7500-8dcf-b9a447fe20a9, read in full on 2026-09-20.
+  Latest user decisions override earlier assistant suggestions; UI sketch is not approved.
+rules:
+  specs:
+    - Include observable success and failure scenarios; distinguish proposal decisions from confirmed requirements.
+  design:
+    - Record Windows-only validation gates, DNS behavior, rollback and credential handling.
+  tasks:
+    - Keep implementation tasks unchecked until implemented and verified.

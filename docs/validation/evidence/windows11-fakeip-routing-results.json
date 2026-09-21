@@ -1,0 +1,34 @@
+[
+    {
+        "Name":  "fakeip-browser-domain",
+        "Pass":  true,
+        "FakeIp":  "198.18.0.7",
+        "ActualSuccess":  true,
+        "ProxyEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "fakeip-ssh-domain",
+        "Pass":  true,
+        "FakeIp":  "198.18.0.5",
+        "ActualSuccess":  true,
+        "ProxyEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "fakeip-multi-any-ip",
+        "Pass":  true,
+        "FakeIp":  "198.18.0.7",
+        "ActualSuccess":  true,
+        "ProxyEvidence":  true,
+        "ExitCode":  0
+    },
+    {
+        "Name":  "fakeip-remote-private-ip",
+        "Pass":  true,
+        "FakeIp":  "198.18.0.4",
+        "ActualSuccess":  true,
+        "ProxyEvidence":  true,
+        "ExitCode":  0
+    }
+]

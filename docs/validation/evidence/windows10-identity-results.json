@@ -1,0 +1,25 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 10 Pro 10.0.19045 x64",
+  "current_user_dpapi": {
+    "roundtrip": true,
+    "ciphertext_not_plaintext": true,
+    "restricted_file_acl": true,
+    "corrupt_data_rejected": true
+  },
+  "cross_account": {
+    "passed": true,
+    "standard_roundtrip": true,
+    "administrator_could_decrypt_standard": false,
+    "standard_could_decrypt_administrator": false,
+    "temporary_file_owner_is_effective_standard_account": true,
+    "temporary_file_principals": ["effective standard account", "SYSTEM"],
+    "unexpected_principals": []
+  },
+  "cleanup_after_vm_restart": {
+    "temporary_user_exists": false,
+    "temporary_profile_exists": false,
+    "public_test_directory_exists": false,
+    "scheduled_task_exists": false
+  }
+}

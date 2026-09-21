@@ -1,0 +1,28 @@
+{
+  "date": "2026-09-21",
+  "platform": "Windows 10 Pro 10.0.19045 x64 Hyper-V VM",
+  "coreVersion": "1.14.1-socks-proxy.2",
+  "coreSha256": "40a64f2973858203468da544db40c6d546f14fd8f02ffa389544e16bb776927a1",
+  "validationExeSha256": "ac49c5ed50fc5f0e28f13f4d9c8c264e40e8f941f99b8b0dab1fa9952b730a0e",
+  "target": "10.20.30.40:22",
+  "fixtureTarget": "10.168.1.136:22",
+  "consecutivePassingRuns": 3,
+  "finalResult": {
+    "rulesConfirmation": true,
+    "proxyConfirmation": true,
+    "longActiveBeforeSwitch": true,
+    "longDisconnectedOnRestart": true,
+    "longSurvivedRestart": false,
+    "newSshAfterSwitch": true,
+    "upstreamASeen": true,
+    "upstreamBSeen": true,
+    "proxyRuleEvents": 0,
+    "explicitDirect": true
+  },
+  "observedTransient": "The first run after VM setup reached upstream B but its direct dial timed out after five seconds. Direct TCP recovered immediately after cleanup; three consecutive clean reruns then passed without code or environment changes.",
+  "temporaryKeyRemoved": true,
+  "hostKeyRemoved": true,
+  "authorizedKeysRestored": true,
+  "finalSingBoxProcessCount": 0,
+  "finalOwnedTunCount": 0
+}

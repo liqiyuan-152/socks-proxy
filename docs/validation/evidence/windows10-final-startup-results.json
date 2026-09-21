@@ -1,0 +1,27 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 10 Pro 10.0.19045 x64",
+  "installerSha256": "c081f7771565be32f7f2af25c8eea13319506f6afc89cd2d121aeb68820f18b7",
+  "applicationSha256": "7587f23e4263421a81aac9aa6ff65774495c02e999a29ef270aac57cfd2f1f3d",
+  "uacCancellation": {
+    "cancelled": true,
+    "routesUnchanged": true,
+    "dnsUnchanged": true,
+    "applicationProcessesBefore": 0,
+    "applicationProcessesAfter": 0,
+    "coreProcessesBefore": 0,
+    "coreProcessesAfter": 0,
+    "tunAdaptersBefore": 0,
+    "tunAdaptersAfter": 0
+  },
+  "singleInstance": {
+    "primarySessionId": 1,
+    "secondSessionId": 1,
+    "secondExitedWithinFiveSeconds": true,
+    "secondExitCode": 0,
+    "applicationProcessesAfter": 1,
+    "coreProcessesAfter": 0,
+    "routesUnchanged": true,
+    "dnsUnchanged": true
+  }
+}

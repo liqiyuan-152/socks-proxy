@@ -1,0 +1,19 @@
+[
+  {
+    "Name": "fakeip-distinct",
+    "Pass": true,
+    "Alpha": "198.18.0.2",
+    "Beta": "198.18.0.3"
+  },
+  {
+    "Name": "fakeip-persist-after-forced-stop",
+    "Pass": true,
+    "Alpha": "198.18.0.2",
+    "Beta": "198.18.0.3"
+  },
+  {
+    "Name": "unknown-fakeip-rejected",
+    "Pass": true,
+    "CurlExit": 56
+  }
+]

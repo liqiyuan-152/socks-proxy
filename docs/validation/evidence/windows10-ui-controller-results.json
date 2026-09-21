@@ -1,0 +1,55 @@
+{
+  "date": "2026-09-21",
+  "platform": "Microsoft Windows 10 Pro 10.0.19045 x64",
+  "environment": "OpenSpec-Win10-Clean Hyper-V VM",
+  "core": {
+    "version": "1.14.1-socks-proxy.2",
+    "sha256": "40a64f2973858203468da544db40c6d546f14fd8f02ffa389544e16bb776927a1"
+  },
+  "validation_executable": {
+    "name": "windows_ui_controller_smoke.exe",
+    "sha256": "d0fefe4ab17554a6c2ec8fc84419b9835914a0ce82ab76dd132ee82eaf6f69a63"
+  },
+  "runs": [
+    {
+      "rules_confirmation": true,
+      "rules_path_a": true,
+      "rule_change_confirmation": true,
+      "proxy_confirmation": true,
+      "path_b": true,
+      "global_confirmation": true,
+      "global_path_b": true,
+      "rule_log": true,
+      "unknown_log": true,
+      "failure_log": true,
+      "clear_kept_proxy": true,
+      "failure_visible": true,
+      "failure_kept_direct": true
+    },
+    {
+      "rules_confirmation": true,
+      "rules_path_a": true,
+      "rule_change_confirmation": true,
+      "proxy_confirmation": true,
+      "path_b": true,
+      "global_confirmation": true,
+      "global_path_b": true,
+      "rule_log": true,
+      "unknown_log": true,
+      "failure_log": true,
+      "clear_kept_proxy": true,
+      "failure_visible": true,
+      "failure_kept_direct": true
+    }
+  ],
+  "post_run_cleanup": {
+    "sing_box_processes": 0,
+    "owned_network_connections": 0,
+    "wintun_pnp_devices": 0
+  },
+  "notes": [
+    "Both runs used the same final validation executable and completed consecutively.",
+    "The first final run removed the legacy socks-proxy adapter left by an earlier build.",
+    "The second final run proved that socks-proxy-tun-v1 can be created again after cleanup."
+  ]
+}

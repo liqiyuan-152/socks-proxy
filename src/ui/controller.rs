@@ -277,6 +277,12 @@ where
         mode: RoutingMode,
         restart_confirmed: bool,
     ) -> Result<(), UiControlError> {
+        if mode != RoutingMode::Direct && config.profiles.active().is_none() {
+            return self
+                .application
+                .stage_without_runtime(config, mode)
+                .map_err(map_switch_error);
+        }
         self.application
             .switch(SwitchRequest {
                 config,
@@ -403,13 +409,10 @@ where
     fn switch_mode(
         &mut self,
         mode: RoutingMode,
-        restart_confirmed: bool,
+        _restart_confirmed: bool,
     ) -> Result<(), UiControlError> {
-        self.apply(
-            self.application.current_config().clone(),
-            mode,
-            restart_confirmed,
-        )
+        // An explicit mode selection is sufficient authorization for a restart.
+        self.apply(self.application.current_config().clone(), mode, true)
     }
 
     fn select_proxy(
@@ -439,6 +442,7 @@ where
             .cloned();
         let (profile, created_reference) = self.profile_from_draft(&draft, previous.as_ref())?;
         let id = profile.id.clone();
+        let creating_first_profile = previous.is_none() && candidate.profiles.active_id().is_none();
         let result = if previous.is_some() {
             candidate.profiles.update(profile)
         } else {
@@ -450,8 +454,15 @@ where
             }
             return Err(validation("profile", error.to_string()));
         }
+        if creating_first_profile {
+            candidate
+                .profiles
+                .select(&id)
+                .map_err(|error| validation("active_proxy", error.to_string()))?;
+        }
         let mode = self.application.snapshot().desired_mode;
-        if let Err(error) = self.apply(candidate, mode, restart_confirmed) {
+        if let Err(error) = self.apply(candidate, mode, restart_confirmed || creating_first_profile)
+        {
             if let Some(reference) = &created_reference {
                 let _ = self.vault.delete_version(reference);
             }
@@ -637,12 +648,14 @@ mod tests {
 
         fn plan(
             &self,
-            _current: &AppConfig,
+            current: &AppConfig,
             current_mode: RoutingMode,
-            _candidate: &AppConfig,
+            candidate: &AppConfig,
             candidate_mode: RoutingMode,
         ) -> ApplyPlan {
-            if current_mode == RoutingMode::Direct && candidate_mode == RoutingMode::Direct {
+            let active_profile_unchanged = current.profiles.active() == candidate.profiles.active();
+            let rules_unchanged = current.rules == candidate.rules;
+            if current_mode == candidate_mode && active_profile_unchanged && rules_unchanged {
                 ApplyPlan::Hot
             } else {
                 ApplyPlan::Restart
@@ -703,15 +716,7 @@ mod tests {
         controller.select_proxy(&a, false).unwrap();
         assert_eq!(controller.state().config.profiles.active_id(), Some(&a));
 
-        assert!(matches!(
-            controller.switch_mode(RoutingMode::Rules, false),
-            Err(UiControlError::ConfirmationRequired(_))
-        ));
-        assert_eq!(
-            controller.state().runtime.applied_mode,
-            Some(RoutingMode::Direct)
-        );
-        controller.switch_mode(RoutingMode::Rules, true).unwrap();
+        controller.switch_mode(RoutingMode::Rules, false).unwrap();
         assert_eq!(
             controller.state().runtime.applied_mode,
             Some(RoutingMode::Rules)
@@ -900,7 +905,7 @@ mod tests {
                     ports: "443".into(),
                     ..RuleDraft::default()
                 },
-                false,
+                true,
             )
             .unwrap();
 

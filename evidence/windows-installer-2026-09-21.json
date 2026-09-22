@@ -1,0 +1,21 @@
+{
+  "date": "2026-09-21",
+  "platform": "Windows 10.0.26200.9278 x64",
+  "installer_sha256": "969d68fb20fdd9e571e6ede608fb4de8dfb270d723782dbf9691045dda60ec37",
+  "application_sha256": "821909fb6c8963aa5045d85b586ce65ccaccc81aa972faf13f6af086726677f9",
+  "result": {
+    "installedPayload": true,
+    "startMenuEntry": true,
+    "coreHashVerified": true,
+    "uacManifest": true,
+    "guiSubsystem": true,
+    "webViewAbsent": true,
+    "dynamicMsvcRuntimeAbsent": true,
+    "recoveryCommand": true,
+    "sameVersionUpgrade": true,
+    "uninstallRemovedFiles": true,
+    "uninstallRemovedShortcut": true,
+    "coreProcessesAfterUninstall": 0,
+    "tunAdaptersAfterUninstall": 0
+  }
+}

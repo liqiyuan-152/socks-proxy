@@ -186,14 +186,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             note: "created through shared UI controller".into(),
             ..RuleDraft::default()
         },
-        false,
+        true,
     )?;
 
-    let rules_confirmation = matches!(
-        controller.switch_mode(RoutingMode::Rules, false),
-        Err(UiControlError::ConfirmationRequired(_))
-    );
-    controller.switch_mode(RoutingMode::Rules, true)?;
+    let rules_switched_without_confirmation =
+        controller.switch_mode(RoutingMode::Rules, false).is_ok();
     probe("A")?;
     thread::sleep(Duration::from_millis(100));
     let rules_applied = controller.state().runtime.applied_mode == Some(RoutingMode::Rules);
@@ -215,11 +212,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     probe("B")?;
     let b_applied = controller.state().config.profiles.active_id() == Some(&b_id);
 
-    let global_confirmation = matches!(
-        controller.switch_mode(RoutingMode::GlobalProxy, false),
-        Err(UiControlError::ConfirmationRequired(_))
-    );
-    controller.switch_mode(RoutingMode::GlobalProxy, true)?;
+    let global_switched_without_confirmation = controller
+        .switch_mode(RoutingMode::GlobalProxy, false)
+        .is_ok();
     probe("B")?;
     thread::sleep(Duration::from_millis(100));
     let global_applied = controller.state().runtime.applied_mode == Some(RoutingMode::GlobalProxy);
@@ -266,12 +261,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(controller);
     upstream_a.stop()?;
     let _ = fs::remove_file(cache_path);
-    if !rules_confirmation
+    if !rules_switched_without_confirmation
         || !rules_applied
         || !rule_change_confirmation
         || !proxy_confirmation
         || !b_applied
-        || !global_confirmation
+        || !global_switched_without_confirmation
         || !global_applied
         || !rule_log
         || !unknown_log
@@ -283,7 +278,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("unexpected shared controller result".into());
     }
     println!(
-        "{{\"rules_confirmation\":true,\"rules_path_a\":true,\"rule_change_confirmation\":true,\"proxy_confirmation\":true,\"path_b\":true,\"global_confirmation\":true,\"global_path_b\":true,\"rule_log\":true,\"unknown_log\":true,\"failure_log\":true,\"clear_kept_proxy\":true,\"failure_visible\":true,\"failure_kept_direct\":true}}"
+        "{{\"rules_switched_without_confirmation\":true,\"rules_path_a\":true,\"rule_change_confirmation\":true,\"proxy_confirmation\":true,\"path_b\":true,\"global_switched_without_confirmation\":true,\"global_path_b\":true,\"rule_log\":true,\"unknown_log\":true,\"failure_log\":true,\"clear_kept_proxy\":true,\"failure_visible\":true,\"failure_kept_direct\":true}}"
     );
     Ok(())
 }

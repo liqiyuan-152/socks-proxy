@@ -2,6 +2,8 @@
 
 日期：2026-09-21。平台：Windows 11 Pro 10.0.26200 x64 实机和 Windows 10 Pro 10.0.19045 x64 Hyper-V VM。Windows 11 当前物理网络为 Wi-Fi，Realtek 有线网卡未连接。
 
+以下 SSH 切换结果是本变更前的历史基线。其中的手动确认描述不适用于当前版本：重新验收时 Rules、Global 和 Direct 的选择应直接执行事务，并记录旧连接按边界断开和新连接按新模式建立的结果。
+
 ## SSH 长连接切换
 
 `scripts/validation/windows-ssh-long-session-lan-smoke.ps1` 使用一次性 Ed25519 密钥连接独立 LAN SSH 端点。客户端目标使用规格中的远程内网地址 `10.20.30.40:22`；Rules/TUN 将其交给当前 SOCKS 上游，上游再把受控 fixture 目标覆写到实际 LAN SSH 服务。两套上游分别代表代理 A/B。
@@ -9,7 +11,7 @@
 验证先确认 Direct 基线，再通过生产 `ManagedCoreRuntime` 启用 Rules 和代理 A，建立输出 `READY` 后保持 30 秒的 SSH 会话。未确认切换会返回中断确认要求；确认切到代理 B 后，内核和 TUN 重启，现有 SSH 被远端重置。随后新 SSH 会话输出 `AFTER` 并正常退出。上游 A/B 的实际日志分别出现 `inbound connection to 10.20.30.40:22`，证明切换前后路径；最后显式 Direct 清理。
 
 ```json
-{"explicit_direct":true,"long_active_before_switch":true,"long_disconnected_on_restart":true,"long_survived_restart":false,"new_ssh_after_switch":true,"proxy_confirmation":true,"proxy_rule_events":0,"rules_confirmation":true,"upstream_a_seen":true,"upstream_b_seen":true}
+变更前历史结果：`{"explicit_direct":true,"long_active_before_switch":true,"long_disconnected_on_restart":true,"long_survived_restart":false,"new_ssh_after_switch":true,"proxy_confirmation":true,"proxy_rule_events":0,"rules_confirmation":true,"upstream_a_seen":true,"upstream_b_seen":true}`。重新验收需要验证 `rules_switched_without_confirmation`，并保留当前代理切换的确认检查。
 ```
 
 实际边界是：当前实现的代理/有效配置切换采用受控重启，现有 SSH 不保证存活；确认提示准确。切换成功只保证新连接使用新路径。此次 SSH 行为由真实客户端和两套真实上游日志确认；`proxy_rule_events=0` 说明连接日志适配器没有为这两条 SSH 生命周期形成完整事件，不把该字段伪报为规则日志证据。规则日志能力由独立的连接日志验收覆盖。

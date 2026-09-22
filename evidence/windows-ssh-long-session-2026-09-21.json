@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-21",
+  "platform": "Windows 10.0.26200.9278 x64",
+  "fixture": {
+    "logical_target": "10.20.30.40:22",
+    "actual_ssh_fixture": "10.168.1.158:22",
+    "upstream_a": "127.0.0.1:18141",
+    "upstream_b": "127.0.0.1:18142"
+  },
+  "result": {
+    "rules_switched_without_confirmation": true,
+    "proxy_confirmation": true,
+    "long_active_before_switch": true,
+    "long_disconnected_on_restart": true,
+    "long_survived_restart": false,
+    "new_ssh_after_switch": true,
+    "upstream_a_seen": true,
+    "upstream_b_seen": true,
+    "explicit_direct": true
+  },
+  "note": "The logical target ensures traffic is rule-routed through each proxy upstream; the upstream override reaches the actual Windows OpenSSH fixture."
+}

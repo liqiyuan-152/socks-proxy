@@ -20,6 +20,33 @@ pub enum ProcessCoreError {
 
 type LineObserver = Arc<dyn Fn(&str) + Send + Sync>;
 
+const CORE_STOP_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(windows)]
+const TUN_CLEANUP_TIMEOUT: Duration = Duration::from_secs(30);
+
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum TunCleanupState {
+    #[default]
+    NotNeeded,
+    Pending,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl TunCleanupState {
+    fn mark_pending(&mut self) {
+        *self = Self::Pending;
+    }
+
+    fn is_pending(self) -> bool {
+        matches!(self, Self::Pending)
+    }
+
+    fn mark_complete(&mut self) {
+        *self = Self::NotNeeded;
+    }
+}
+
 impl fmt::Display for ProcessCoreError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -47,6 +74,8 @@ pub struct ProcessCoreBackend {
     readiness_timeout: Duration,
     #[cfg(windows)]
     process_job: Option<ProcessJob>,
+    #[cfg(windows)]
+    tun_cleanup: TunCleanupState,
 }
 
 impl ProcessCoreBackend {
@@ -61,6 +90,8 @@ impl ProcessCoreBackend {
             readiness_timeout: default_readiness_timeout(),
             #[cfg(windows)]
             process_job: None,
+            #[cfg(windows)]
+            tun_cleanup: TunCleanupState::NotNeeded,
         }
     }
 
@@ -86,43 +117,50 @@ impl ProcessCoreBackend {
 
     pub fn stop(&mut self) -> Result<Option<i32>, ProcessCoreError> {
         let Some(mut child) = self.child.take() else {
+            #[cfg(windows)]
+            self.cleanup_owned_tun_adapter()?;
             return Ok(None);
         };
         #[cfg(windows)]
         let used_tun = self.captured_output().contains("inbound/tun[");
-        let result = match child.try_wait()? {
-            Some(status) => Ok(status.code()),
+        #[cfg(windows)]
+        if used_tun {
+            self.tun_cleanup.mark_pending();
+        }
+        let exit_code = match child.try_wait()? {
+            Some(status) => status.code(),
             None => {
                 child.kill()?;
-                let status = child.wait()?;
-                Ok(status.code())
+                let status = wait_for_child(&mut child, CORE_STOP_TIMEOUT, "停止内核进程")?;
+                status.code()
             }
         };
         #[cfg(windows)]
-        let cleanup_result = if used_tun {
-            let cleanup_result = remove_owned_tun_adapter();
-            if cleanup_result.is_ok() {
-                thread::sleep(Duration::from_millis(500));
-            }
-            cleanup_result
-        } else {
-            Ok(())
-        };
+        self.cleanup_owned_tun_adapter()?;
         self.line_receiver = None;
         self.config = None;
         #[cfg(windows)]
         {
             self.process_job = None;
         }
-        #[cfg(windows)]
-        cleanup_result?;
-        result
+        Ok(exit_code)
     }
 
     #[cfg(test)]
     fn with_timeout(mut self, timeout: Duration) -> Self {
         self.readiness_timeout = timeout;
         self
+    }
+
+    #[cfg(windows)]
+    fn cleanup_owned_tun_adapter(&mut self) -> Result<(), ProcessCoreError> {
+        if !self.tun_cleanup.is_pending() {
+            return Ok(());
+        }
+        remove_owned_tun_adapter()?;
+        thread::sleep(Duration::from_millis(500));
+        self.tun_cleanup.mark_complete();
+        Ok(())
     }
 }
 
@@ -152,9 +190,10 @@ foreach ($id in $ids) {
 }
 exit 0
 "#;
-    let status = hidden_command(Path::new("powershell.exe"))
-        .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
-        .status()?;
+    let mut command = hidden_command(Path::new("powershell.exe"));
+    command.args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT]);
+    let status =
+        run_command_with_timeout(&mut command, TUN_CLEANUP_TIMEOUT, "清理应用 Wintun 设备")?;
     if status.success() {
         Ok(())
     } else {
@@ -162,6 +201,45 @@ exit 0
             "清理应用 Wintun 设备失败: {status}"
         ))))
     }
+}
+
+fn wait_for_child(
+    child: &mut Child,
+    timeout: Duration,
+    operation: &str,
+) -> io::Result<std::process::ExitStatus> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("{operation}超时"),
+            ));
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(any(windows, test))]
+fn run_command_with_timeout(
+    command: &mut Command,
+    timeout: Duration,
+    operation: &str,
+) -> io::Result<std::process::ExitStatus> {
+    let mut child = command.spawn()?;
+    #[cfg(windows)]
+    // Closing this job on any result terminates descendants spawned by the
+    // cleanup shell, including pnputil.exe, instead of only its parent.
+    let job = ProcessJob::assign(&child)?;
+    let result = wait_for_child(&mut child, timeout, operation);
+    #[cfg(windows)]
+    drop(job);
+    result
 }
 
 impl Drop for ProcessCoreBackend {
@@ -436,5 +514,42 @@ mod tests {
         assert!(error.missing_binary);
         assert_eq!(error.stage, BackendStage::Version);
         let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_timeout_terminates_the_managed_child() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .spawn()
+            .expect("starts a child that exceeds the test timeout");
+        let error = wait_for_child(&mut child, Duration::from_millis(1), "测试子进程").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(error.to_string(), "测试子进程超时");
+        assert!(child.try_wait().unwrap().is_some());
+    }
+
+    #[test]
+    fn tun_cleanup_stays_pending_until_the_cleanup_succeeds() {
+        let mut cleanup = TunCleanupState::default();
+        assert!(!cleanup.is_pending());
+        cleanup.mark_pending();
+        assert!(cleanup.is_pending());
+        // A failed external cleanup leaves this state untouched for a retry.
+        assert!(cleanup.is_pending());
+        cleanup.mark_complete();
+        assert!(!cleanup.is_pending());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_cleanup_command_timeout_terminates_the_child() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 30"]);
+        let error =
+            run_command_with_timeout(&mut command, Duration::from_millis(1), "测试外部清理命令")
+                .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(error.to_string(), "测试外部清理命令超时");
     }
 }

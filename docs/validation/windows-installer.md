@@ -4,6 +4,19 @@
 
 安装包包含 release 模式的 `socks-proxy.exe`、固定的 `sing-box.exe`、开始菜单入口、使用与恢复说明、67 项内核依赖许可证清单，以及对应的 sing-box 源码包、补丁、构建脚本和版本锁。内核安装后 SHA-256 与锁定值 `40a64f2973858203468da544db40c6d546f14fd8f02ffa38954e16bb776927a1` 一致。
 
+## 本变更新的候选安装输入
+
+当前变更的 Windows x64 release 由 `scripts/release/prepare-windows-installer-input.sh` 组装为 Inno Setup 输入目录。默认输出为 `.work/windows-installer/package`；在 Windows 上将该目录复制为 `windows/package` 后，用 Inno Setup 6.7.3 编译 `windows/installer.iss`。
+
+```text
+scripts/release/prepare-windows-installer-input.sh
+# 将 .work/windows-installer/package 复制为 Windows 工作树中的 windows/package
+ISCC.exe windows\installer.iss
+PowerShell -ExecutionPolicy Bypass -File scripts\validation\windows-installer-smoke.ps1 -Installer windows\output\socks-proxy-0.1.0-windows-x64-setup.exe
+```
+
+准备脚本在输入目录生成 `SHA256SUMS`，其中必须包含应用、内核、文档、许可证清单和对应 sing-box 源码材料。本次候选应用 SHA-256 为 `821909fb6c8963aa5045d85b586ce65ccaccc81aa972faf13f6af086726677f9`。该候选尚未完成 Windows 安装、升级与卸载验收，不能替代下述历史结果。
+
 `scripts/validation/windows-installer-smoke.ps1` 在 Windows 上完成以下检查：
 
 1. 静默安装并核对程序、内核、文档、许可证、源码材料、卸载器和开始菜单快捷方式。

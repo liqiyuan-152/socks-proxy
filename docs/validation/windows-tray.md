@@ -2,6 +2,8 @@
 
 日期：2026-09-21。平台：Windows 11 Pro 10.0.26200 x64，管理员 SSH。验证对象为 release 模式 Windows GUI 程序。
 
+除本变更新增的验收说明外，以下 SHA-256 和实测记录均为变更前历史基线。它们不证明模式切换免确认、日志详情或响应式退出；这些行为需要使用新构建重新验收。
+
 `scripts/validation/windows-tray-lifecycle-smoke.ps1` 设置 `SOCKS_PROXY_TRAY_REQUIRED=1` 后启动程序，因此托盘创建失败会直接使进程失败。主进程保持运行，第二个应用实例在 5 秒内退出，确认单一托盘进程和命名互斥约束生效。
 
 ```json

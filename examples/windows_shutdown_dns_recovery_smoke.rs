@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         domain::{ProfileId, ProxyHost, ProxyProfile, ProxyProfiles, ProxyProtocol},
         routing::RoutingMode,
         storage::AppConfig,
-        ui::{ManagedDesktopController, MemoryCredentialVault, SharedController, UiControlError},
+        ui::{ManagedDesktopController, MemoryCredentialVault, SharedController},
     };
     use std::{
         env, io,
@@ -112,11 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         MemoryCredentialVault::default(),
     )?;
 
-    let confirmation_required = matches!(
-        controller.switch_mode(RoutingMode::Rules, false),
-        Err(UiControlError::ConfirmationRequired(_))
-    );
-    controller.switch_mode(RoutingMode::Rules, true)?;
+    let switched_without_confirmation = controller.switch_mode(RoutingMode::Rules, false).is_ok();
     let fake_addresses = resolve_until(&domain, true, Duration::from_secs(15))?;
 
     controller.shutdown()?;
@@ -126,7 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shutdown_direct = state.runtime.applied_mode == Some(RoutingMode::Direct);
 
     let result = serde_json::json!({
-        "confirmation_required": confirmation_required,
+        "switched_without_confirmation": switched_without_confirmation,
         "fake_addresses": fake_addresses,
         "direct_addresses": direct_addresses,
         "shutdown_direct": shutdown_direct,
@@ -134,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "application_cache_notice": true
     });
     println!("{result}");
-    if !confirmation_required || !shutdown_direct || !last_mode_preserved {
+    if !switched_without_confirmation || !shutdown_direct || !last_mode_preserved {
         return Err(format!("shutdown DNS recovery result was incomplete: {result}").into());
     }
     Ok(())

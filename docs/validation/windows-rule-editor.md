@@ -9,7 +9,7 @@
 Windows 实际结果包含：
 
 ```json
-{"rules_confirmation":true,"rules_path_a":true,"rule_change_confirmation":true,"proxy_confirmation":true,"path_b":true,"global_confirmation":true,"global_path_b":true,"failure_visible":true,"failure_kept_direct":true}
+变更前历史结果：`{"rules_confirmation":true,"rules_path_a":true,"rule_change_confirmation":true,"proxy_confirmation":true,"path_b":true,"global_confirmation":true,"global_path_b":true,"failure_visible":true,"failure_kept_direct":true}`。重新验收时模式切换必须使用无需确认结果字段，规则编辑仍需验证确认路径。
 ```
 
 原生界面复查确认规则空状态、表头、新建按钮和编辑窗口无重叠或截断；编辑窗口包含名称、启用、目标类型、目标、端口、备注、保存和取消控件。

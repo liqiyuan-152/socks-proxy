@@ -230,7 +230,7 @@ fn unprotect(ciphertext: &[u8]) -> io::Result<Vec<u8>> {
 fn crypt(input: &[u8], protect: bool) -> io::Result<Vec<u8>> {
     let length = u32::try_from(input.len())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "凭据过长"))?;
-    let mut input_blob = CRYPT_INTEGER_BLOB {
+    let input_blob = CRYPT_INTEGER_BLOB {
         cbData: length,
         pbData: input.as_ptr().cast_mut(),
     };
@@ -241,7 +241,7 @@ fn crypt(input: &[u8], protect: bool) -> io::Result<Vec<u8>> {
     let succeeded = unsafe {
         if protect {
             CryptProtectData(
-                &mut input_blob,
+                &input_blob,
                 ptr::null(),
                 ptr::null(),
                 ptr::null_mut(),
@@ -251,7 +251,7 @@ fn crypt(input: &[u8], protect: bool) -> io::Result<Vec<u8>> {
             )
         } else {
             CryptUnprotectData(
-                &mut input_blob,
+                &input_blob,
                 ptr::null_mut(),
                 ptr::null(),
                 ptr::null_mut(),

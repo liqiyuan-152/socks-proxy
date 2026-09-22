@@ -1,0 +1,12 @@
+{
+  "date": "2026-09-21",
+  "platform": "Windows 10.0.26200.9278 x64",
+  "application": "latest release socks-proxy.exe",
+  "result": {
+    "tray_created": true,
+    "single_instance": true,
+    "window_close_observed": false,
+    "window_close_keeps_process": false
+  },
+  "scope": "SSH validation session; full interactive tray menu and exit-timeout acceptance still requires an interactive Windows desktop session."
+}

@@ -11,7 +11,7 @@ cargo-xwin build --locked --target x86_64-pc-windows-msvc --example windows_sett
 scripts/validation/windows-settings-backup-smoke.ps1
 ```
 
-实际结果：
+历史基线结果（变更前）：
 
 ```json
 {"first_launch_direct":true,"startup_disabled":true,"secret_free":true,"preview_missing_credentials":true,"import_applied_direct":true}
@@ -19,7 +19,7 @@ scripts/validation/windows-settings-backup-smoke.ps1
 
 验证覆盖：
 
-1. 新配置的持久模式和实际模式均为全局直连。
+1. 本变更重新验收时，新配置的期望模式必须为规则代理，实际模式为全局直连/未接管，且不启动内核、不修改 TUN、路由或 DNS。
 2. `start_with_windows` 默认值为 `false`。
 3. 认证代理的导出保留 `auth_enabled`，但不含测试用户名、测试密码、`credential_ref` 或 `last_applied_mode`。
 4. 导入预览正确报告 1 个代理、1 条规则和 1 个待补充认证。
@@ -28,4 +28,4 @@ scripts/validation/windows-settings-backup-smoke.ps1
 
 验证程序：`examples/windows_settings_backup_smoke.rs`。PowerShell 驱动：`scripts/validation/windows-settings-backup-smoke.ps1`。
 
-Windows 10 使用 SHA-256 `837977bf417bba207a73ada122775b1f12d11139b2f999be791d22cb68abb9af` 的验证程序复跑，五项结果全部为 `true`。机器可读结果见 `evidence/windows10-storage-recovery-results.json`。
+旧 SHA-256 与机器可读结果只证明变更前版本；重新构建后必须更新此处与 `evidence/` 中的结果。

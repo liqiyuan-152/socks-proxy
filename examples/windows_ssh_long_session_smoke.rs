@@ -156,13 +156,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             note: "Windows acceptance fixture".into(),
             ..RuleDraft::default()
         },
-        false,
+        true,
     )?;
-    let rules_confirmation = matches!(
-        controller.switch_mode(RoutingMode::Rules, false),
-        Err(UiControlError::ConfirmationRequired(_))
-    );
-    controller.switch_mode(RoutingMode::Rules, true)?;
+    let rules_switched_without_confirmation =
+        controller.switch_mode(RoutingMode::Rules, false).is_ok();
 
     let long_out = work.join("ssh-long.out");
     let long_err = work.join("ssh-long.err");
@@ -234,7 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let direct = controller.state().runtime.applied_mode == Some(RoutingMode::Direct);
 
     let result = serde_json::json!({
-        "rules_confirmation": rules_confirmation,
+        "rules_switched_without_confirmation": rules_switched_without_confirmation,
         "proxy_confirmation": proxy_confirmation,
         "long_active_before_switch": long_active_before_switch,
         "long_disconnected_on_restart": long_disconnected_on_restart,
@@ -246,7 +243,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "explicit_direct": direct
     });
     println!("{result}");
-    if !rules_confirmation
+    if !rules_switched_without_confirmation
         || !proxy_confirmation
         || !long_active_before_switch
         || !after_status.success()

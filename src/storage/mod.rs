@@ -40,7 +40,7 @@ impl Default for AppConfig {
             cache_initialized: false,
             profiles: ProxyProfiles::default(),
             rules: Vec::new(),
-            last_applied_mode: RoutingMode::Direct,
+            last_applied_mode: RoutingMode::Rules,
             preferences: Preferences::default(),
         }
     }
@@ -260,12 +260,13 @@ mod tests {
     }
 
     #[test]
-    fn first_launch_is_direct_and_startup_is_disabled() {
+    fn first_launch_prefers_rules_and_startup_is_disabled() {
         let root = test_path("first-launch");
         let store = ConfigStore::new(root.join("config.json"));
         let config = store.load().unwrap();
-        assert_eq!(config.last_applied_mode, RoutingMode::Direct);
+        assert_eq!(config.last_applied_mode, RoutingMode::Rules);
         assert!(!config.preferences.start_with_windows);
+        assert!(config.profiles.active().is_none());
         let _ = fs::remove_dir_all(root);
     }
 

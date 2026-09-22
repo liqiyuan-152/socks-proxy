@@ -13,7 +13,7 @@
 实际结果：
 
 ```json
-{"rules_confirmation":true,"rules_path_a":true,"rule_change_confirmation":true,"proxy_confirmation":true,"path_b":true,"global_confirmation":true,"global_path_b":true,"rule_log":true,"unknown_log":true,"failure_log":true,"clear_kept_proxy":true,"failure_visible":true,"failure_kept_direct":true}
+变更前历史结果：`{"rules_confirmation":true,"rules_path_a":true,"rule_change_confirmation":true,"proxy_confirmation":true,"path_b":true,"global_confirmation":true,"global_path_b":true,"rule_log":true,"unknown_log":true,"failure_log":true,"clear_kept_proxy":true,"failure_visible":true,"failure_kept_direct":true}`。重新验收需要验证 Rules 与 Global 模式切换无需确认，并包含日志详情的完整文本检查。
 ```
 
-单元测试直接重放 `windows11-tun.log` 和 `windows11-http-auth-failure.log` 的实际行形状，验证 ANSI 清理、成功/失败聚合、未知规则和跨修订映射。连接日志页读取共享控制器的事件快照，不维护演示数据。
+单元测试直接重放 `windows11-tun.log` 和 `windows11-http-auth-failure.log` 的实际行形状，验证 ANSI 清理、成功/失败聚合、未知规则和跨修订映射。连接日志页读取共享控制器的事件快照，不维护演示数据。重新验收必须在最小窗口宽度展开成功、未知规则和长失败原因记录，确认完整脱敏字段可选择复制，且清空日志会关闭已展开的详情。

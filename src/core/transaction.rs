@@ -223,6 +223,13 @@ where
         let mode = self.current.last_applied_mode;
         self.snapshot.desired_mode = mode;
         self.snapshot.failure = None;
+        if mode != RoutingMode::Direct && self.current.profiles.active().is_none() {
+            self.snapshot.phase = SwitchPhase::Direct;
+            self.snapshot.applied_mode = Some(RoutingMode::Direct);
+            self.snapshot.failure = Some("需要先配置当前代理".into());
+            self.snapshot.traffic_may_be_direct = false;
+            return Ok(());
+        }
         if let Err(error) = self.runtime.validate(&self.current, mode) {
             let failure = SwitchError::Invalid(error.to_string());
             self.snapshot.phase = SwitchPhase::Error;
@@ -303,6 +310,31 @@ where
             applied_config: candidate,
             plan,
         })
+    }
+
+    pub fn stage_without_runtime(
+        &mut self,
+        mut candidate: AppConfig,
+        desired_mode: RoutingMode,
+    ) -> Result<(), SwitchError> {
+        candidate
+            .validate()
+            .map_err(|error| SwitchError::Invalid(error.to_string()))?;
+        candidate.revision = self.current.revision.saturating_add(1);
+        candidate.last_applied_mode = desired_mode;
+        self.store
+            .save_applied(&candidate)
+            .map_err(|error| SwitchError::Persistence(error.to_string()))?;
+        self.current = candidate.clone();
+        self.snapshot = ApplicationSnapshot {
+            phase: SwitchPhase::Direct,
+            desired_mode,
+            applied_mode: Some(RoutingMode::Direct),
+            applied_revision: candidate.revision,
+            failure: Some("需要先配置当前代理".into()),
+            traffic_may_be_direct: false,
+        };
+        Ok(())
     }
 
     fn rollback_after_failure<T>(
@@ -681,5 +713,27 @@ mod tests {
         );
         assert!(controller.snapshot().failure.is_some());
         assert!(controller.snapshot().traffic_may_be_direct);
+    }
+
+    #[test]
+    fn startup_with_rules_but_no_proxy_stays_direct_without_touching_runtime() {
+        let current = AppConfig::default();
+        assert_eq!(current.last_applied_mode, RoutingMode::Rules);
+        let controller =
+            ApplicationController::new_restoring(current, Runtime::default(), Store::default())
+                .unwrap();
+
+        assert_eq!(controller.snapshot().desired_mode, RoutingMode::Rules);
+        assert_eq!(controller.snapshot().phase, SwitchPhase::Direct);
+        assert_eq!(
+            controller.snapshot().applied_mode,
+            Some(RoutingMode::Direct)
+        );
+        assert_eq!(
+            controller.snapshot().failure.as_deref(),
+            Some("需要先配置当前代理")
+        );
+        assert!(!controller.snapshot().traffic_may_be_direct);
+        assert!(controller.runtime.events.is_empty());
     }
 }

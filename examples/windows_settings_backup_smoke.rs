@@ -70,8 +70,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut source = controller()?;
     let initial = source.state();
-    let first_launch_direct = initial.runtime.applied_mode == Some(RoutingMode::Direct)
-        && initial.config.last_applied_mode == RoutingMode::Direct;
+    let first_launch_rules_pending = initial.runtime.applied_mode == Some(RoutingMode::Direct)
+        && initial.config.last_applied_mode == RoutingMode::Rules
+        && initial.runtime.desired_mode == RoutingMode::Rules;
     let startup_disabled = !initial.config.preferences.start_with_windows;
 
     let mut proxy = ProxyDraft::default();
@@ -110,7 +111,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         && imported.runtime.applied_mode == Some(RoutingMode::Direct)
         && imported.config.last_applied_mode == RoutingMode::Direct;
 
-    if !first_launch_direct
+    if !first_launch_rules_pending
         || !startup_disabled
         || !secret_free
         || !preview_complete
@@ -119,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("unexpected settings backup result".into());
     }
     println!(
-        "{{\"first_launch_direct\":true,\"startup_disabled\":true,\"secret_free\":true,\"preview_missing_credentials\":true,\"import_applied_direct\":true}}"
+        "{{\"first_launch_rules_pending\":true,\"startup_disabled\":true,\"secret_free\":true,\"preview_missing_credentials\":true,\"import_applied_direct\":true}}"
     );
     Ok(())
 }

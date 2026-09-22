@@ -637,7 +637,7 @@ fn write_restricted_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     {
         return Err(io::Error::last_os_error());
     }
-    let mut attributes = SECURITY_ATTRIBUTES {
+    let attributes = SECURITY_ATTRIBUTES {
         nLength: mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
         lpSecurityDescriptor: descriptor.cast::<c_void>(),
         bInheritHandle: 0,
@@ -648,7 +648,7 @@ fn write_restricted_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
             wide_path.as_ptr(),
             GENERIC_WRITE,
             FILE_SHARE_READ,
-            &mut attributes,
+            &attributes,
             CREATE_NEW,
             FILE_ATTRIBUTE_TEMPORARY,
             ptr::null_mut(),

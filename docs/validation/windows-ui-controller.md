@@ -9,7 +9,7 @@
 实际结果：
 
 ```json
-{"rules_confirmation":true,"rules_path_a":true,"rule_change_confirmation":true,"proxy_confirmation":true,"path_b":true,"global_confirmation":true,"global_path_b":true,"rule_log":true,"unknown_log":true,"failure_log":true,"clear_kept_proxy":true,"failure_visible":true,"failure_kept_direct":true}
+变更前历史结果：`{"rules_confirmation":true,"rules_path_a":true,"rule_change_confirmation":true,"proxy_confirmation":true,"path_b":true,"global_confirmation":true,"global_path_b":true,"rule_log":true,"unknown_log":true,"failure_log":true,"clear_kept_proxy":true,"failure_visible":true,"failure_kept_direct":true}`。重新验收必须改为验证 `rules_switched_without_confirmation` 与 `global_switched_without_confirmation`，同时保留规则和代理变更确认检查。
 ```
 
 同一最终验证程序在 Windows 10 连续执行两次，结果均与上方一致。验证程序 SHA-256 为 `d0fefe4ab17554a6c2ec8fc84419b9835914a0ce82ab76dd132ee82eaf6f69a63`，内核 SHA-256 为 `40a64f2973858203468da544db40c6d546f14fd8f02ffa389544e16bb776927a1`。每次生产 TUN 停止后，监管器按连接名删除本程序创建的 Wintun PnP 设备；最终 `sing-box` 进程、`socks-proxy-tun-v1`/旧 `socks-proxy` 网络连接和 Wintun PnP 设备计数均为 0。机器可读结果见 `docs/validation/evidence/windows10-ui-controller-results.json`。

@@ -15,6 +15,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg(windows)]
+const DNS_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub trait CoreCredentialSource: Send {
     fn load(&self, profile: &ProxyProfile) -> Result<Option<ProxyCredentials>, String>;
 }
@@ -138,10 +141,13 @@ impl<C: CoreCredentialSource> ManagedCoreRuntime<C> {
 
     fn stop(&mut self, flush_dns: bool) -> Result<(), ManagedCoreRuntimeError> {
         let was_running = self.backend.is_some();
-        if let Some(mut backend) = self.backend.take() {
-            backend
-                .stop()
-                .map_err(|error| ManagedCoreRuntimeError(error.to_string()))?;
+        if let Some(mut backend) = self.backend.take()
+            && let Err(error) = backend.stop()
+        {
+            // Keep pending TUN cleanup and its process job available for the
+            // next explicit shutdown attempt instead of dropping the retry state.
+            self.backend = Some(backend);
+            return Err(ManagedCoreRuntimeError(error.to_string()));
         }
         if was_running && flush_dns {
             flush_system_dns_cache()?;
@@ -295,20 +301,46 @@ impl<C: CoreCredentialSource> ApplicationRuntime for ManagedCoreRuntime<C> {
 #[cfg(windows)]
 fn flush_system_dns_cache() -> Result<(), ManagedCoreRuntimeError> {
     use std::os::windows::process::CommandExt;
-    use std::process::Command;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static TEST_TIMEOUT_CONSUMED: AtomicBool = AtomicBool::new(false);
+    if std::env::var_os("SOCKS_PROXY_TEST_FORCE_DNS_FLUSH_TIMEOUT_ONCE").is_some()
+        && !TEST_TIMEOUT_CONSUMED.swap(true, Ordering::SeqCst)
+    {
+        return Err(ManagedCoreRuntimeError(
+            "刷新 Windows DNS 缓存超时（测试注入）".into(),
+        ));
+    }
+    use std::{
+        process::Command,
+        thread,
+        time::{Duration, Instant},
+    };
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let output = Command::new("ipconfig.exe")
+    let mut child = Command::new("ipconfig.exe")
         .arg("/flushdns")
         .creation_flags(CREATE_NO_WINDOW)
-        .output()
+        .spawn()
         .map_err(ManagedCoreRuntimeError::from)?;
-    if output.status.success() {
+    let deadline = Instant::now() + DNS_FLUSH_TIMEOUT;
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(ManagedCoreRuntimeError::from)? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(ManagedCoreRuntimeError("刷新 Windows DNS 缓存超时".into()));
+        }
+        thread::sleep(Duration::from_millis(50));
+    };
+    if status.success() {
         Ok(())
     } else {
         Err(ManagedCoreRuntimeError(format!(
             "刷新 Windows DNS 缓存失败: {}",
-            output.status
+            status
         )))
     }
 }

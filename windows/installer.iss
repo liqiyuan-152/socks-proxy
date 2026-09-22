@@ -33,7 +33,7 @@ Source: "package\source\*"; DestDir: "{app}\source\sing-box"; Flags: ignoreversi
 
 [Icons]
 Name: "{group}\Socks Proxy"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
-Name: "{group}\使用与恢复说明"; Filename: "{app}\docs\user-guide.md"
+Name: "{group}\Usage and Recovery Guide"; Filename: "{app}\docs\user-guide.md"
 
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/C taskkill /F /IM {#AppExeName} >NUL 2>&1"; Flags: runhidden waituntilterminated; RunOnceId: "StopApplication"
@@ -52,7 +52,7 @@ begin
     begin
       Exec(ExpandConstant('{cmd}'), '/C taskkill /F /IM {#AppExeName} >NUL 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
       if not Exec(ExistingApp, '--recover-direct', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
-        RaiseException('无法在升级前恢复网络，请先按恢复文档切换全局直连。');
+        RaiseException('Network recovery before upgrade failed; switch to Direct and retry.');
     end;
   end;
 end;

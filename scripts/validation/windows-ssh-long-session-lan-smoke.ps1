@@ -63,8 +63,10 @@ try {
     Start-Sleep -Seconds 1
     $raw = & $ValidationExe $CorePath $Workspace $Target $PrivateKey $TargetUser $TargetPort
     if ($LASTEXITCODE -ne 0) { throw "SSH long-session helper failed with exit code $LASTEXITCODE" }
-    $result = $raw | ConvertFrom-Json
-    if (-not $result.rules_confirmation -or -not $result.proxy_confirmation -or
+    $jsonLine = @($raw | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+    if (-not $jsonLine) { throw "SSH long-session helper did not return JSON: $($raw -join [Environment]::NewLine)" }
+    $result = $jsonLine | ConvertFrom-Json
+    if (-not $result.rules_switched_without_confirmation -or -not $result.proxy_confirmation -or
         -not $result.long_active_before_switch -or -not $result.new_ssh_after_switch -or
         -not $result.upstream_a_seen -or -not $result.upstream_b_seen -or
         -not $result.explicit_direct) {

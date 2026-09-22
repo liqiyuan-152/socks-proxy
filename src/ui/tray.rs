@@ -3,12 +3,19 @@ use crate::routing::RoutingMode;
 use muda::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum TrayCommand {
     ToggleWindow,
     Mode(RoutingMode),
     Profile(String),
     Page(Page),
     Exit,
+}
+
+impl TrayCommand {
+    pub fn requires_window_feedback(&self) -> bool {
+        matches!(self, Self::Mode(_) | Self::Profile(_) | Self::Page(_))
+    }
 }
 
 pub struct TrayManager {
@@ -116,25 +123,30 @@ impl TrayManager {
         }
         while let Ok(event) = muda::MenuEvent::receiver().try_recv() {
             let id = event.id.0;
-            let command = match id.as_str() {
-                "mode:direct" => Some(TrayCommand::Mode(RoutingMode::Direct)),
-                "mode:rules" => Some(TrayCommand::Mode(RoutingMode::Rules)),
-                "mode:global" => Some(TrayCommand::Mode(RoutingMode::GlobalProxy)),
-                "page:status" => Some(TrayCommand::Page(Page::Status)),
-                "page:proxies" => Some(TrayCommand::Page(Page::Proxies)),
-                "page:rules" => Some(TrayCommand::Page(Page::Rules)),
-                "page:logs" => Some(TrayCommand::Page(Page::Logs)),
-                "page:settings" => Some(TrayCommand::Page(Page::Settings)),
-                "exit" => Some(TrayCommand::Exit),
-                _ => id
-                    .strip_prefix("profile:")
-                    .map(|id| TrayCommand::Profile(id.to_owned())),
-            };
+            let command = command_from_menu_id(&id);
             if let Some(command) = command {
                 commands.push(command);
             }
         }
         commands
+    }
+}
+
+fn command_from_menu_id(id: &str) -> Option<TrayCommand> {
+    match id {
+        "mode:direct" => Some(TrayCommand::Mode(RoutingMode::Direct)),
+        "mode:rules" => Some(TrayCommand::Mode(RoutingMode::Rules)),
+        "mode:global" => Some(TrayCommand::Mode(RoutingMode::GlobalProxy)),
+        "page:status" => Some(TrayCommand::Page(Page::Status)),
+        "page:proxies" => Some(TrayCommand::Page(Page::Proxies)),
+        "page:rules" => Some(TrayCommand::Page(Page::Rules)),
+        "page:logs" => Some(TrayCommand::Page(Page::Logs)),
+        "page:settings" => Some(TrayCommand::Page(Page::Settings)),
+        "exit" => Some(TrayCommand::Exit),
+        _ => id
+            .strip_prefix("profile:")
+            .filter(|profile| !profile.is_empty())
+            .map(|profile| TrayCommand::Profile(profile.to_owned())),
     }
 }
 
@@ -304,7 +316,7 @@ fn status_icon(state: IconState) -> Result<Icon, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::status_label;
+    use super::{TrayCommand, command_from_menu_id, status_label};
     use crate::{core::SwitchPhase, routing::RoutingMode};
 
     #[test]
@@ -316,6 +328,68 @@ mod tests {
         assert_eq!(
             status_label(SwitchPhase::Running, Some(RoutingMode::Rules)),
             "规则代理"
+        );
+    }
+
+    #[test]
+    fn every_enabled_menu_command_has_a_handler() {
+        for id in [
+            "mode:direct",
+            "mode:rules",
+            "mode:global",
+            "page:status",
+            "page:proxies",
+            "page:rules",
+            "page:logs",
+            "page:settings",
+            "exit",
+            "profile:abc",
+        ] {
+            assert!(command_from_menu_id(id).is_some(), "{id}");
+        }
+        assert!(command_from_menu_id("profile:").is_none());
+        assert!(command_from_menu_id("unknown").is_none());
+        assert!(matches!(
+            command_from_menu_id("exit"),
+            Some(TrayCommand::Exit)
+        ));
+    }
+
+    #[test]
+    fn command_feedback_contract_matches_ui_actions() {
+        let window_commands = [
+            TrayCommand::Mode(RoutingMode::Rules),
+            TrayCommand::Profile("proxy-a".into()),
+            TrayCommand::Page(crate::ui::Page::Logs),
+        ];
+        for command in window_commands {
+            assert!(command.requires_window_feedback());
+        }
+        assert!(!TrayCommand::ToggleWindow.requires_window_feedback());
+        assert!(!TrayCommand::Exit.requires_window_feedback());
+    }
+
+    #[test]
+    fn menu_ids_map_to_the_expected_actions() {
+        assert_eq!(
+            command_from_menu_id("mode:rules"),
+            Some(TrayCommand::Mode(RoutingMode::Rules))
+        );
+        assert_eq!(
+            command_from_menu_id("mode:global"),
+            Some(TrayCommand::Mode(RoutingMode::GlobalProxy))
+        );
+        assert_eq!(
+            command_from_menu_id("mode:direct"),
+            Some(TrayCommand::Mode(RoutingMode::Direct))
+        );
+        assert_eq!(
+            command_from_menu_id("page:logs"),
+            Some(TrayCommand::Page(crate::ui::Page::Logs))
+        );
+        assert_eq!(
+            command_from_menu_id("profile:proxy-a"),
+            Some(TrayCommand::Profile("proxy-a".into()))
         );
     }
 }

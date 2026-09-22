@@ -73,17 +73,7 @@ pub fn error_banner(ui: &mut egui::Ui, message: &str) {
         });
 }
 
-pub fn success_banner(ui: &mut egui::Ui, message: &str) {
-    egui::Frame::new()
-        .fill(Color32::from_rgb(240, 253, 244))
-        .stroke(Stroke::new(1.0, Color32::from_rgb(187, 247, 208)))
-        .corner_radius(egui::CornerRadius::same(theme::CONTROL_CORNER_RADIUS))
-        .inner_margin(egui::Margin::symmetric(10, 8))
-        .show(ui, |ui| {
-            ui.colored_label(theme::GREEN, format!("成功: {message}"));
-        });
-}
-
+#[cfg(windows)]
 pub fn operation_banner(ui: &mut egui::Ui, color: Color32, title: &str, message: &str) {
     egui::Frame::new()
         .fill(theme::BLUE_SOFT)

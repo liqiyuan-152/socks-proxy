@@ -65,7 +65,7 @@ impl TrayManager {
         })
     }
 
-    pub fn sync(&mut self, state: &UiState) -> Result<(), String> {
+    pub fn sync(&mut self, state: &UiState, mode_switching: bool) -> Result<(), String> {
         let signature = profile_signature(state);
         if signature != self.profile_signature {
             let (menu, status_item, mode_items, profile_items, profile_signature) =
@@ -96,7 +96,11 @@ impl TrayManager {
             let _ = self.tray.set_icon(Some(status_icon(next_icon)?));
             self.icon_state = Some(next_icon);
         }
-        let tooltip = tooltip(state);
+        let tooltip = if mode_switching {
+            format!("正在应用代理模式 - {}", tooltip(state))
+        } else {
+            tooltip(state)
+        };
         if self.tooltip != tooltip {
             // Explorer can report E_FAIL after accepting a tooltip update, just
             // as it does for replacement icons. Keep state synchronization going.

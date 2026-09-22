@@ -8,25 +8,6 @@ pub fn outbound_label(outbound: ConnectionOutbound) -> &'static str {
     }
 }
 
-pub fn matches(
-    event: &ConnectionEvent,
-    filter: &str,
-    outbound: Option<ConnectionOutbound>,
-    success: Option<bool>,
-) -> bool {
-    let needle = filter.trim().to_lowercase();
-    let rule = match &event.rule {
-        RuleAttribution::Known(rule) => rule.as_str(),
-        RuleAttribution::Unknown => "未知",
-    };
-    let text_matches = needle.is_empty()
-        || event.target.to_lowercase().contains(&needle)
-        || rule.to_lowercase().contains(&needle);
-    outbound.is_none_or(|value| value == event.outbound)
-        && success.is_none_or(|value| value == matches!(event.result, ConnectionResult::Success))
-        && text_matches
-}
-
 pub fn detail_values(
     event: &ConnectionEvent,
     event_time: impl Fn(u128) -> String,

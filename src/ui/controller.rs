@@ -1,7 +1,7 @@
 use crate::{
     core::{
         ApplicationController, ApplicationRuntime, ApplicationSnapshot, ApplicationStore,
-        SwitchError, SwitchRequest,
+        SwitchDiagnostic, SwitchError, SwitchRequest,
     },
     domain::{
         CredentialRef, DeleteContext, DeleteProfileError, DomainName, IpNetwork, IpRange, PortSet,
@@ -11,7 +11,13 @@ use crate::{
     storage::{AppConfig, CredentialVault, export_backup, preview_import},
 };
 use std::fmt;
-use std::{collections::BTreeSet, io, net::IpAddr, str::FromStr};
+use std::{
+    collections::BTreeSet,
+    io,
+    net::IpAddr,
+    str::FromStr,
+    sync::{Arc, Mutex, mpsc},
+};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,6 +25,7 @@ pub struct UiState {
     pub config: AppConfig,
     pub runtime: ApplicationSnapshot,
     pub connection_events: Vec<crate::logs::ConnectionEvent>,
+    pub switch_diagnostics: Vec<SwitchDiagnostic>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -195,6 +202,88 @@ pub trait SharedController: Send {
     fn preview_backup(&self, bytes: &[u8]) -> Result<BackupPreview, UiControlError>;
     fn import_backup(&mut self, bytes: &[u8]) -> Result<(), UiControlError>;
     fn clear_logs(&mut self) -> Result<(), UiControlError>;
+    fn connection_log_page(
+        &mut self,
+        cursor: Option<crate::logs::ConnectionLogCursor>,
+        filter: &crate::logs::ConnectionLogFilter,
+    ) -> Result<crate::logs::ConnectionLogPage, UiControlError>;
+}
+
+/// Owns the single mode-changing worker permitted by a desktop controller.
+/// The UI can keep rendering this committed snapshot while the worker owns the
+/// runtime controller lock for a network transition.
+pub struct ModeSwitchJob {
+    receiver: Option<mpsc::Receiver<Result<(), UiControlError>>>,
+    snapshot: UiState,
+    operation_id: Option<String>,
+}
+
+impl ModeSwitchJob {
+    pub fn new(snapshot: UiState) -> Self {
+        Self {
+            receiver: None,
+            snapshot,
+            operation_id: None,
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.receiver.is_some()
+    }
+    pub fn operation_id(&self) -> Option<&str> {
+        self.operation_id.as_deref()
+    }
+    pub fn snapshot(&self) -> &UiState {
+        &self.snapshot
+    }
+
+    pub fn update_snapshot(&mut self, snapshot: UiState) {
+        if !self.is_running() {
+            self.snapshot = snapshot;
+        }
+    }
+
+    pub fn start(
+        &mut self,
+        controller: Arc<Mutex<Box<dyn SharedController>>>,
+        mode: RoutingMode,
+    ) -> Result<(), UiControlError> {
+        if self.is_running() {
+            return Err(UiControlError::Operation(
+                "正在切换代理模式，请等待当前操作完成".into(),
+            ));
+        }
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = controller
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .switch_mode(mode, true);
+            let _ = sender.send(result);
+        });
+        self.receiver = Some(receiver);
+        self.operation_id = Some(Uuid::new_v4().simple().to_string());
+        Ok(())
+    }
+
+    pub fn poll(&mut self) -> Option<Result<(), UiControlError>> {
+        let outcome = self.receiver.as_ref()?.try_recv();
+        match outcome {
+            Ok(result) => {
+                self.receiver = None;
+                self.operation_id = None;
+                Some(result)
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.receiver = None;
+                self.operation_id = None;
+                Some(Err(UiControlError::Operation(
+                    "模式切换线程意外中断".into(),
+                )))
+            }
+            Err(mpsc::TryRecvError::Empty) => None,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -399,6 +488,7 @@ where
             config: self.application.current_config().clone(),
             runtime: self.application.snapshot().clone(),
             connection_events: self.application.connection_events(),
+            switch_diagnostics: self.application.switch_diagnostics(),
         }
     }
 
@@ -576,6 +666,16 @@ where
             .clear_connection_events()
             .map_err(UiControlError::Operation)
     }
+
+    fn connection_log_page(
+        &mut self,
+        cursor: Option<crate::logs::ConnectionLogCursor>,
+        filter: &crate::logs::ConnectionLogFilter,
+    ) -> Result<crate::logs::ConnectionLogPage, UiControlError> {
+        self.application
+            .connection_log_page(cursor, filter)
+            .map_err(UiControlError::Operation)
+    }
 }
 
 fn parse_ip_range(value: &str) -> Result<IpRange, crate::domain::ValidationError> {
@@ -697,6 +797,47 @@ mod tests {
         draft.host = "127.0.0.1".into();
         draft.port = port.to_string();
         draft
+    }
+
+    #[test]
+    fn mode_switch_job_serializes_requests_and_exposes_the_committed_snapshot() {
+        let mut controller = ManagedDesktopController::new(
+            AppConfig::default(),
+            Runtime {
+                fail_apply: Arc::new(AtomicBool::new(false)),
+            },
+            Store::default(),
+            MemoryCredentialVault::default(),
+        )
+        .unwrap();
+        let snapshot = controller.state();
+        let controller: Arc<Mutex<Box<dyn SharedController>>> =
+            Arc::new(Mutex::new(Box::new(controller)));
+        let mut job = ModeSwitchJob::new(snapshot.clone());
+
+        job.start(Arc::clone(&controller), RoutingMode::Direct)
+            .unwrap();
+        assert!(job.is_running());
+        assert_eq!(job.snapshot(), &snapshot);
+        assert!(matches!(
+            job.start(Arc::clone(&controller), RoutingMode::Rules),
+            Err(UiControlError::Operation(message)) if message.contains("正在切换")
+        ));
+
+        let result = (0..100)
+            .find_map(|_| {
+                let result = job.poll();
+                if result.is_none() {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                result
+            })
+            .expect("background mode switch finishes");
+        assert!(result.is_ok());
+        assert!(!job.is_running());
+        let committed = controller.lock().unwrap().state();
+        job.update_snapshot(committed.clone());
+        assert_eq!(job.snapshot(), &committed);
     }
 
     #[test]
@@ -1029,6 +1170,7 @@ mod tests {
         let proxy = controller.save_proxy(draft("A", 1080), false).unwrap();
         controller.select_proxy(&proxy, false).unwrap();
         controller.switch_mode(RoutingMode::Rules, true).unwrap();
+        assert!(controller.state().switch_diagnostics.last().is_some());
         exited.store(true, Ordering::SeqCst);
 
         let failed = controller.state();

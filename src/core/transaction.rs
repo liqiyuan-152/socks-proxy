@@ -1,10 +1,12 @@
 use crate::{
+    logs::redact_sensitive,
     routing::RoutingMode,
     storage::{AppConfig, ConfigError, ConfigStore},
 };
-use std::fmt;
+use std::{collections::VecDeque, fmt, time::Instant};
 
-const RESTART_WARNING: &str = "切换需要重启网络内核，现有 SSH 等连接可能中断";
+const RESTART_WARNING: &str = "切换需要重启网络内核";
+const DIAGNOSTIC_LIMIT: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SwitchPhase {
@@ -30,6 +32,59 @@ pub enum ApplyPlan {
     Restart,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwitchDiagnosticPhase {
+    Preflight,
+    Apply,
+    Persist,
+    Rollback,
+    Commit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwitchDiagnosticOutcome {
+    Succeeded,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SwitchDiagnosticEvent {
+    pub phase: SwitchDiagnosticPhase,
+    pub elapsed_ms: u128,
+    pub succeeded: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SwitchDiagnostic {
+    pub id: String,
+    pub target_mode: RoutingMode,
+    pub plan: Option<ApplyPlan>,
+    pub events: Vec<SwitchDiagnosticEvent>,
+    pub outcome: Option<SwitchDiagnosticOutcome>,
+}
+
+impl SwitchDiagnostic {
+    fn new(target_mode: RoutingMode) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().simple().to_string(),
+            target_mode,
+            plan: None,
+            events: Vec::new(),
+            outcome: None,
+        }
+    }
+
+    fn record(&mut self, phase: SwitchDiagnosticPhase, started: Instant, error: Option<&str>) {
+        self.events.push(SwitchDiagnosticEvent {
+            phase,
+            elapsed_ms: started.elapsed().as_millis(),
+            succeeded: error.is_none(),
+            error: error.map(redact_sensitive),
+        });
+    }
+}
+
 pub trait ApplicationRuntime {
     type Error: std::error::Error + Send + Sync + 'static;
 
@@ -51,6 +106,16 @@ pub trait ApplicationRuntime {
     }
     fn connection_events(&self) -> Vec<crate::logs::ConnectionEvent> {
         Vec::new()
+    }
+    fn connection_log_page(
+        &self,
+        _cursor: Option<crate::logs::ConnectionLogCursor>,
+        _filter: &crate::logs::ConnectionLogFilter,
+    ) -> Result<crate::logs::ConnectionLogPage, String> {
+        Ok(crate::logs::ConnectionLogPage {
+            events: Vec::new(),
+            next_cursor: None,
+        })
     }
     fn clear_connection_events(&mut self) -> Result<(), String> {
         Ok(())
@@ -116,6 +181,7 @@ pub struct ApplicationController<R, S> {
     runtime: R,
     store: S,
     snapshot: ApplicationSnapshot,
+    diagnostics: VecDeque<SwitchDiagnostic>,
 }
 
 impl<R, S> ApplicationController<R, S>
@@ -140,6 +206,7 @@ where
             current,
             runtime,
             store,
+            diagnostics: VecDeque::new(),
         })
     }
 
@@ -160,6 +227,7 @@ where
             current,
             runtime,
             store,
+            diagnostics: VecDeque::new(),
         };
         let _ = controller.retry_last_successful();
         Ok(controller)
@@ -173,8 +241,32 @@ where
         &self.current
     }
 
+    pub fn switch_diagnostics(&self) -> Vec<SwitchDiagnostic> {
+        self.diagnostics.iter().cloned().collect()
+    }
+
+    fn finish_diagnostic(
+        &mut self,
+        mut diagnostic: SwitchDiagnostic,
+        outcome: SwitchDiagnosticOutcome,
+    ) {
+        diagnostic.outcome = Some(outcome);
+        self.diagnostics.push_back(diagnostic);
+        while self.diagnostics.len() > DIAGNOSTIC_LIMIT {
+            self.diagnostics.pop_front();
+        }
+    }
+
     pub fn connection_events(&self) -> Vec<crate::logs::ConnectionEvent> {
         self.runtime.connection_events()
+    }
+
+    pub fn connection_log_page(
+        &self,
+        cursor: Option<crate::logs::ConnectionLogCursor>,
+        filter: &crate::logs::ConnectionLogFilter,
+    ) -> Result<crate::logs::ConnectionLogPage, String> {
+        self.runtime.connection_log_page(cursor, filter)
     }
 
     pub fn clear_connection_events(&mut self) -> Result<(), String> {
@@ -254,48 +346,95 @@ where
     }
 
     pub fn switch(&mut self, request: SwitchRequest) -> Result<SwitchResult, SwitchError> {
+        let mut diagnostic = SwitchDiagnostic::new(request.mode);
+        let preflight_started = Instant::now();
         let mut candidate = request.config;
-        candidate
-            .validate()
-            .map_err(|error| SwitchError::Invalid(error.to_string()))?;
-        if request.mode != RoutingMode::Direct {
-            candidate
-                .profiles
-                .require_active()
-                .map_err(|error| SwitchError::Invalid(error.to_string()))?;
+        if let Err(error) = candidate.validate() {
+            let failure = SwitchError::Invalid(error.to_string());
+            diagnostic.record(
+                SwitchDiagnosticPhase::Preflight,
+                preflight_started,
+                Some(&failure.to_string()),
+            );
+            self.finish_diagnostic(diagnostic, SwitchDiagnosticOutcome::Failed);
+            return Err(failure);
+        }
+        if request.mode != RoutingMode::Direct
+            && let Err(error) = candidate.profiles.require_active()
+        {
+            let failure = SwitchError::Invalid(error.to_string());
+            diagnostic.record(
+                SwitchDiagnosticPhase::Preflight,
+                preflight_started,
+                Some(&failure.to_string()),
+            );
+            self.finish_diagnostic(diagnostic, SwitchDiagnosticOutcome::Failed);
+            return Err(failure);
         }
         let old = self.current.clone();
         let old_mode = self.snapshot.applied_mode.unwrap_or(RoutingMode::Direct);
         candidate.revision = old.revision.saturating_add(1);
         candidate.last_applied_mode = request.mode;
         let plan = self.runtime.plan(&old, old_mode, &candidate, request.mode);
+        diagnostic.plan = Some(plan);
         if plan == ApplyPlan::Restart && !request.restart_confirmed {
-            return Err(SwitchError::RestartConfirmationRequired(RESTART_WARNING));
+            let failure = SwitchError::RestartConfirmationRequired(RESTART_WARNING);
+            diagnostic.record(
+                SwitchDiagnosticPhase::Preflight,
+                preflight_started,
+                Some(&failure.to_string()),
+            );
+            self.finish_diagnostic(diagnostic, SwitchDiagnosticOutcome::Failed);
+            return Err(failure);
         }
-        self.runtime
-            .validate(&candidate, request.mode)
-            .map_err(|error| SwitchError::Invalid(error.to_string()))?;
+        if let Err(error) = self.runtime.validate(&candidate, request.mode) {
+            let failure = SwitchError::Invalid(error.to_string());
+            diagnostic.record(
+                SwitchDiagnosticPhase::Preflight,
+                preflight_started,
+                Some(&failure.to_string()),
+            );
+            self.finish_diagnostic(diagnostic, SwitchDiagnosticOutcome::Failed);
+            return Err(failure);
+        }
+        diagnostic.record(SwitchDiagnosticPhase::Preflight, preflight_started, None);
 
         self.snapshot.phase = SwitchPhase::Reconfiguring;
         self.snapshot.desired_mode = request.mode;
         self.snapshot.failure = None;
+        let apply_started = Instant::now();
         if let Err(error) = self.runtime.apply(&candidate, request.mode) {
-            return self.rollback_after_failure(
-                &old,
-                old_mode,
-                SwitchError::Runtime(error.to_string()),
+            let failure = SwitchError::Runtime(error.to_string());
+            diagnostic.record(
+                SwitchDiagnosticPhase::Apply,
+                apply_started,
+                Some(&failure.to_string()),
             );
+            let result: Result<SwitchResult, SwitchError> =
+                self.rollback_after_failure(&old, old_mode, failure, &mut diagnostic);
+            let failure = result.expect_err("rollback paths always return a failure");
+            self.finish_diagnostic(diagnostic, SwitchDiagnosticOutcome::Failed);
+            return Err(failure);
         }
+        diagnostic.record(SwitchDiagnosticPhase::Apply, apply_started, None);
         if let Some(cache_initialized) = self.runtime.cache_initialized() {
             candidate.cache_initialized = cache_initialized;
         }
+        let persist_started = Instant::now();
         if let Err(error) = self.store.save_applied(&candidate) {
-            return self.rollback_after_failure(
-                &old,
-                old_mode,
-                SwitchError::Persistence(error.to_string()),
+            let failure = SwitchError::Persistence(error.to_string());
+            diagnostic.record(
+                SwitchDiagnosticPhase::Persist,
+                persist_started,
+                Some(&failure.to_string()),
             );
+            let result: Result<SwitchResult, SwitchError> =
+                self.rollback_after_failure(&old, old_mode, failure, &mut diagnostic);
+            let failure = result.expect_err("rollback paths always return a failure");
+            self.finish_diagnostic(diagnostic, SwitchDiagnosticOutcome::Failed);
+            return Err(failure);
         }
+        diagnostic.record(SwitchDiagnosticPhase::Persist, persist_started, None);
 
         self.current = candidate.clone();
         self.snapshot = ApplicationSnapshot {
@@ -306,6 +445,8 @@ where
             failure: None,
             traffic_may_be_direct: false,
         };
+        diagnostic.record(SwitchDiagnosticPhase::Commit, Instant::now(), None);
+        self.finish_diagnostic(diagnostic, SwitchDiagnosticOutcome::Succeeded);
         Ok(SwitchResult {
             applied_config: candidate,
             plan,
@@ -342,10 +483,13 @@ where
         old: &AppConfig,
         old_mode: RoutingMode,
         cause: SwitchError,
+        diagnostic: &mut SwitchDiagnostic,
     ) -> Result<T, SwitchError> {
         let cause_text = cause.to_string();
+        let rollback_started = Instant::now();
         match self.runtime.rollback(old, old_mode) {
             Ok(()) => {
+                diagnostic.record(SwitchDiagnosticPhase::Rollback, rollback_started, None);
                 self.snapshot = ApplicationSnapshot {
                     phase: phase_for(old_mode),
                     desired_mode: old_mode,
@@ -365,6 +509,11 @@ where
                 self.snapshot.applied_mode = None;
                 self.snapshot.failure = Some(failure.to_string());
                 self.snapshot.traffic_may_be_direct = true;
+                diagnostic.record(
+                    SwitchDiagnosticPhase::Rollback,
+                    rollback_started,
+                    Some(&failure.to_string()),
+                );
                 Err(failure)
             }
         }
@@ -525,6 +674,101 @@ mod tests {
         assert_eq!(controller.runtime.events[0].0, "validate");
         assert_eq!(controller.runtime.events[1].0, "apply");
         assert_eq!(controller.store.saved.len(), 1);
+    }
+
+    #[test]
+    fn switch_diagnostics_capture_success_failure_and_rollback_without_secrets() {
+        let (current, _, _) = config();
+        let mut controller =
+            ApplicationController::new(current.clone(), Runtime::default(), Store::default())
+                .unwrap();
+        controller
+            .switch(SwitchRequest {
+                config: current.clone(),
+                mode: RoutingMode::GlobalProxy,
+                restart_confirmed: false,
+            })
+            .unwrap();
+        let success = controller.switch_diagnostics().pop().unwrap();
+        assert_eq!(success.outcome, Some(SwitchDiagnosticOutcome::Succeeded));
+        assert_eq!(success.plan, Some(ApplyPlan::Hot));
+        assert_eq!(
+            success
+                .events
+                .iter()
+                .map(|event| event.phase)
+                .collect::<Vec<_>>(),
+            vec![
+                SwitchDiagnosticPhase::Preflight,
+                SwitchDiagnosticPhase::Apply,
+                SwitchDiagnosticPhase::Persist,
+                SwitchDiagnosticPhase::Commit,
+            ]
+        );
+        assert!(success.events.iter().all(|event| event.succeeded));
+
+        let mut preflight = ApplicationController::new(
+            current.clone(),
+            Runtime {
+                fail_validate: true,
+                ..Runtime::default()
+            },
+            Store::default(),
+        )
+        .unwrap();
+        let error = preflight
+            .switch(SwitchRequest {
+                config: current.clone(),
+                mode: RoutingMode::GlobalProxy,
+                restart_confirmed: false,
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("invalid core config"));
+        let failed = preflight.switch_diagnostics().pop().unwrap();
+        assert_eq!(failed.outcome, Some(SwitchDiagnosticOutcome::Failed));
+        assert_eq!(failed.events.len(), 1);
+        assert_eq!(failed.events[0].phase, SwitchDiagnosticPhase::Preflight);
+        assert!(!failed.events[0].succeeded);
+
+        let mut rollback = ApplicationController::new(
+            current,
+            Runtime {
+                fail_apply: true,
+                ..Runtime::default()
+            },
+            Store::default(),
+        )
+        .unwrap();
+        rollback.runtime.events.clear();
+        let error = rollback
+            .switch(SwitchRequest {
+                config: rollback.current_config().clone(),
+                mode: RoutingMode::GlobalProxy,
+                restart_confirmed: false,
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("apply failed"));
+        let failed = rollback.switch_diagnostics().pop().unwrap();
+        assert_eq!(
+            failed
+                .events
+                .iter()
+                .map(|event| event.phase)
+                .collect::<Vec<_>>(),
+            vec![
+                SwitchDiagnosticPhase::Preflight,
+                SwitchDiagnosticPhase::Apply,
+                SwitchDiagnosticPhase::Rollback,
+            ]
+        );
+
+        let mut redacted = SwitchDiagnostic::new(RoutingMode::Rules);
+        redacted.record(
+            SwitchDiagnosticPhase::Preflight,
+            Instant::now(),
+            Some("password=not-for-diagnostics"),
+        );
+        assert!(!format!("{redacted:?}").contains("not-for-diagnostics"));
     }
 
     #[test]

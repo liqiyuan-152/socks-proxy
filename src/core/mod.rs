@@ -7,8 +7,8 @@ mod recovery;
 mod runtime;
 mod transaction;
 pub use config::{
-    CompiledCoreConfig, CoreConfigError, CoreConfigInput, CoreConfigValidator, DirectDnsServer,
-    ProxyCredentials, RestrictedConfigFile,
+    CompiledCoreConfig, CoreConfigError, CoreConfigInput, CoreConfigValidator, CoreControlApi,
+    DirectDnsServer, ProxyCredentials, RestrictedConfigFile,
 };
 pub use process::{ProcessCoreBackend, ProcessCoreError};
 pub use recovery::{
@@ -20,6 +20,7 @@ pub use runtime::{
 };
 pub use transaction::{
     ApplicationController, ApplicationRuntime, ApplicationSnapshot, ApplicationStore, ApplyPlan,
+    SwitchDiagnostic, SwitchDiagnosticEvent, SwitchDiagnosticOutcome, SwitchDiagnosticPhase,
     SwitchError, SwitchPhase, SwitchRequest, SwitchResult,
 };
 

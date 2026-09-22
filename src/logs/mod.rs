@@ -1,14 +1,17 @@
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, VecDeque},
-    fs, io,
-    path::PathBuf,
+    fs,
+    io::{self, Read, Seek, SeekFrom, Write},
+    path::{Path, PathBuf},
     time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 const DEFAULT_MAX_BYTES: usize = 20 * 1024 * 1024;
 const DEFAULT_RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const MEMORY_WINDOW: usize = 500;
+pub const LOG_PAGE_SIZE: usize = 100;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConnectionOutbound {
@@ -42,6 +45,31 @@ pub struct ConnectionEvent {
     pub config_revision: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionLogSegment {
+    Current,
+    Previous,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConnectionLogCursor {
+    segment: ConnectionLogSegment,
+    end_offset: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConnectionLogFilter {
+    pub query: String,
+    pub outbound: Option<ConnectionOutbound>,
+    pub success: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionLogPage {
+    pub events: Vec<ConnectionEvent>,
+    pub next_cursor: Option<ConnectionLogCursor>,
+}
+
 #[derive(Debug, Default)]
 struct PendingConnection {
     revision: u64,
@@ -66,59 +94,234 @@ impl ConnectionLogStore {
         }
     }
 
-    fn load(&self) -> io::Result<VecDeque<ConnectionEvent>> {
-        let bytes = match fs::read(&self.path) {
-            Ok(bytes) => bytes,
+    fn load_recent(&self) -> io::Result<VecDeque<ConnectionEvent>> {
+        let previous = self.path.with_extension("jsonl.previous");
+        let mut events = self.load_recent_file(&previous, MEMORY_WINDOW)?;
+        let current = self.load_recent_file(&self.path, MEMORY_WINDOW)?;
+        events.extend(current);
+        while events.len() > MEMORY_WINDOW {
+            events.pop_front();
+        }
+        Ok(events)
+    }
+
+    fn load_recent_file(&self, path: &Path, limit: usize) -> io::Result<VecDeque<ConnectionEvent>> {
+        let mut file = match fs::File::open(path) {
+            Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(VecDeque::new()),
             Err(error) => return Err(error),
         };
-        Ok(bytes
-            .split(|byte| *byte == b'\n')
-            .filter(|line| !line.is_empty())
-            .filter_map(|line| serde_json::from_slice(line).ok())
-            .map(redact_event)
-            .collect())
+        let mut position = file.metadata()?.len();
+        let mut tail = Vec::new();
+        let mut events = VecDeque::new();
+        while position > 0 && events.len() < limit {
+            let chunk = position.min(8192) as usize;
+            position -= chunk as u64;
+            file.seek(SeekFrom::Start(position))?;
+            let mut bytes = vec![0; chunk];
+            file.read_exact(&mut bytes)?;
+            bytes.extend_from_slice(&tail);
+            let mut lines = bytes.split(|byte| *byte == b'\n').collect::<Vec<_>>();
+            tail = lines.remove(0).to_vec();
+            for line in lines.into_iter().rev() {
+                if let Ok(event) = serde_json::from_slice(line) {
+                    events.push_front(redact_event(event));
+                    if events.len() == limit {
+                        break;
+                    }
+                }
+            }
+        }
+        if events.len() < limit
+            && !tail.is_empty()
+            && let Ok(event) = serde_json::from_slice(&tail)
+        {
+            events.push_front(redact_event(event));
+        }
+        Ok(events)
     }
 
-    fn persist(&self, events: &mut VecDeque<ConnectionEvent>) -> io::Result<()> {
-        let cutoff = now_ms().saturating_sub(self.retention.as_millis());
-        while events
-            .front()
-            .is_some_and(|event| event.observed_at_unix_ms < cutoff)
-        {
-            events.pop_front();
+    fn page(
+        &self,
+        cursor: Option<ConnectionLogCursor>,
+        filter: &ConnectionLogFilter,
+        limit: usize,
+    ) -> io::Result<ConnectionLogPage> {
+        let (segment, path, end_offset) = match cursor {
+            Some(ConnectionLogCursor {
+                segment,
+                end_offset,
+            }) => (segment, self.path_for(segment), end_offset),
+            None => {
+                let path = self.path_for(ConnectionLogSegment::Current);
+                let end_offset = fs::metadata(&path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0);
+                (ConnectionLogSegment::Current, path, end_offset)
+            }
+        };
+        let (events, next_offset) = self.reverse_page(&path, end_offset, filter, limit)?;
+        if let Some(end_offset) = next_offset {
+            return Ok(ConnectionLogPage {
+                events,
+                next_cursor: Some(ConnectionLogCursor {
+                    segment,
+                    end_offset,
+                }),
+            });
         }
-        let mut bytes = serialize_events(events)?;
-        while bytes.len() > self.max_bytes && events.pop_front().is_some() {
-            bytes = serialize_events(events)?;
+        if segment == ConnectionLogSegment::Current {
+            let previous = self.path_for(ConnectionLogSegment::Previous);
+            if let Ok(metadata) = fs::metadata(&previous)
+                && metadata.len() > 0
+            {
+                return Ok(ConnectionLogPage {
+                    events,
+                    next_cursor: Some(ConnectionLogCursor {
+                        segment: ConnectionLogSegment::Previous,
+                        end_offset: metadata.len(),
+                    }),
+                });
+            }
         }
+        Ok(ConnectionLogPage {
+            events,
+            next_cursor: None,
+        })
+    }
+
+    fn reverse_page(
+        &self,
+        path: &Path,
+        end_offset: u64,
+        filter: &ConnectionLogFilter,
+        limit: usize,
+    ) -> io::Result<(Vec<ConnectionEvent>, Option<u64>)> {
+        let mut file = match fs::File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok((Vec::new(), None)),
+            Err(error) => return Err(error),
+        };
+        let mut position = end_offset.min(file.metadata()?.len());
+        let mut tail = Vec::new();
+        let mut events = Vec::with_capacity(limit);
+        let mut resume = None;
+        while position > 0 && events.len() < limit {
+            let length = position.min(8192) as usize;
+            position -= length as u64;
+            file.seek(SeekFrom::Start(position))?;
+            let mut bytes = vec![0; length];
+            file.read_exact(&mut bytes)?;
+            bytes.extend_from_slice(&tail);
+            let mut line_end = bytes.len();
+            for index in (0..bytes.len()).rev() {
+                if bytes[index] == b'\n' {
+                    if index + 1 < line_end {
+                        let line_start = position + index as u64 + 1;
+                        resume = Some(line_start);
+                        if let Ok(event) = serde_json::from_slice(&bytes[index + 1..line_end]) {
+                            let event = redact_event(event);
+                            if filter.matches(&event) {
+                                events.push(event);
+                                if events.len() == limit {
+                                    return Ok((events, resume));
+                                }
+                            }
+                        }
+                    }
+                    line_end = index;
+                }
+            }
+            tail = bytes[..line_end].to_vec();
+            if position == 0 {
+                if !tail.is_empty()
+                    && let Ok(event) = serde_json::from_slice(&tail)
+                {
+                    let event = redact_event(event);
+                    if filter.matches(&event) {
+                        events.push(event);
+                    }
+                }
+                return Ok((events, None));
+            }
+        }
+        Ok((events, resume))
+    }
+
+    fn path_for(&self, segment: ConnectionLogSegment) -> PathBuf {
+        match segment {
+            ConnectionLogSegment::Current => self.path.clone(),
+            ConnectionLogSegment::Previous => self.path.with_extension("jsonl.previous"),
+        }
+    }
+
+    fn append(&self, event: &ConnectionEvent) -> io::Result<()> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let temporary = self.path.with_extension("jsonl.tmp");
-        fs::write(&temporary, bytes)?;
-        if self.path.exists() {
-            fs::remove_file(&self.path)?;
+        self.remove_expired_segment()?;
+        let mut record = Vec::new();
+        serde_json::to_writer(&mut record, event).map_err(io::Error::other)?;
+        record.push(b'\n');
+        if self.path.exists()
+            && fs::metadata(&self.path)?
+                .len()
+                .saturating_add(record.len() as u64)
+                > self.max_bytes as u64
+        {
+            let previous = self.path.with_extension("jsonl.previous");
+            let _ = fs::remove_file(&previous);
+            fs::rename(&self.path, previous)?;
         }
-        fs::rename(temporary, &self.path)
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+        file.write_all(&record)?;
+        file.sync_data()
+    }
+
+    fn remove_expired_segment(&self) -> io::Result<()> {
+        let previous = self.path.with_extension("jsonl.previous");
+        if previous.exists()
+            && previous
+                .metadata()?
+                .modified()
+                .ok()
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|age| age > self.retention)
+        {
+            fs::remove_file(previous)?;
+        }
+        Ok(())
     }
 
     fn clear(&self) -> io::Result<()> {
-        match fs::remove_file(&self.path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error),
+        for path in [&self.path, &self.path.with_extension("jsonl.previous")] {
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
         }
+        Ok(())
     }
 }
 
-fn serialize_events(events: &VecDeque<ConnectionEvent>) -> io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    for event in events {
-        serde_json::to_writer(&mut bytes, event).map_err(io::Error::other)?;
-        bytes.push(b'\n');
+impl ConnectionLogFilter {
+    fn matches(&self, event: &ConnectionEvent) -> bool {
+        let query = self.query.trim().to_ascii_lowercase();
+        let query_matches = query.is_empty()
+            || event.target.to_ascii_lowercase().contains(&query)
+            || matches!(&event.rule, RuleAttribution::Known(rule) if rule.to_ascii_lowercase().contains(&query));
+        let outbound_matches = self
+            .outbound
+            .is_none_or(|outbound| outbound == event.outbound);
+        let success_matches = self
+            .success
+            .is_none_or(|success| success == matches!(event.result, ConnectionResult::Success));
+        query_matches && outbound_matches && success_matches
     }
-    Ok(bytes)
 }
 
 fn redact_event(mut event: ConnectionEvent) -> ConnectionEvent {
@@ -141,15 +344,10 @@ pub struct ConnectionLogAdapter {
 impl ConnectionLogAdapter {
     pub fn with_store(path: impl Into<PathBuf>) -> Self {
         let store = ConnectionLogStore::new(path);
-        let (mut events, mut storage_error) = match store.load() {
+        let (events, storage_error) = match store.load_recent() {
             Ok(events) => (events, None),
             Err(error) => (VecDeque::new(), Some(error.to_string())),
         };
-        if storage_error.is_none()
-            && let Err(error) = store.persist(&mut events)
-        {
-            storage_error = Some(error.to_string());
-        }
         Self {
             events,
             store: Some(store),
@@ -207,6 +405,28 @@ impl ConnectionLogAdapter {
         self.events.iter().cloned().collect()
     }
 
+    pub fn page(
+        &self,
+        cursor: Option<ConnectionLogCursor>,
+        filter: &ConnectionLogFilter,
+        limit: usize,
+    ) -> io::Result<ConnectionLogPage> {
+        match &self.store {
+            Some(store) => store.page(cursor, filter, limit),
+            None => Ok(ConnectionLogPage {
+                events: self
+                    .events
+                    .iter()
+                    .rev()
+                    .filter(|event| filter.matches(event))
+                    .take(limit)
+                    .cloned()
+                    .collect(),
+                next_cursor: None,
+            }),
+        }
+    }
+
     pub fn clear(&mut self) -> io::Result<()> {
         self.events.clear();
         self.pending.clear();
@@ -251,8 +471,11 @@ impl ConnectionLogAdapter {
             result,
             config_revision: pending.revision,
         });
+        while self.events.len() > MEMORY_WINDOW {
+            self.events.pop_front();
+        }
         if let Some(store) = &self.store
-            && let Err(error) = store.persist(&mut self.events)
+            && let Err(error) = store.append(self.events.back().expect("event was appended"))
         {
             self.storage_error = Some(error.to_string());
         }
@@ -350,6 +573,7 @@ fn redact_key(value: &str, key: &str) -> String {
     result
 }
 
+#[cfg(test)]
 fn now_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -560,22 +784,137 @@ mod tests {
             retention: Duration::from_secs(60),
         };
         let now = now_ms();
-        let mut events = VecDeque::from([
-            event(now.saturating_sub(120_000), "expired"),
-            event(now.saturating_sub(2_000), &"a".repeat(180)),
-            event(now.saturating_sub(1_000), &"b".repeat(180)),
-            event(now, "newest"),
-        ]);
-        store.persist(&mut events).unwrap();
-        assert!(events.iter().all(|item| {
-            item.observed_at_unix_ms >= now.saturating_sub(60_000)
-                && !matches!(&item.result, ConnectionResult::Failure(detail) if detail == "expired")
-        }));
+        store
+            .append(&event(now.saturating_sub(120_000), "expired"))
+            .unwrap();
+        store
+            .append(&event(now.saturating_sub(2_000), &"a".repeat(180)))
+            .unwrap();
+        store
+            .append(&event(now.saturating_sub(1_000), &"b".repeat(180)))
+            .unwrap();
+        store.append(&event(now, "newest")).unwrap();
+        assert!(fs::metadata(&path).unwrap().len() <= 450);
+        let recent = store.load_recent().unwrap();
         assert_eq!(
-            events.back().unwrap().result,
+            recent.back().unwrap().result,
             ConnectionResult::Failure("newest".into())
         );
-        assert!(fs::metadata(&path).unwrap().len() <= 450);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reloads_recent_events_from_current_and_previous_segment() {
+        let root = std::env::temp_dir().join(format!("socks-proxy-segments-{}", Uuid::new_v4()));
+        let path = root.join("connections.jsonl");
+        fs::create_dir_all(&root).unwrap();
+        let older = event(1, "older");
+        let newer = event(2, "newer");
+        let mut old_bytes = serde_json::to_vec(&older).unwrap();
+        old_bytes.push(b'\n');
+        let mut new_bytes = serde_json::to_vec(&newer).unwrap();
+        new_bytes.push(b'\n');
+        fs::write(path.with_extension("jsonl.previous"), old_bytes).unwrap();
+        fs::write(&path, new_bytes).unwrap();
+
+        let loaded = ConnectionLogStore::new(&path).load_recent().unwrap();
+        assert_eq!(
+            loaded
+                .iter()
+                .map(|item| item.connection_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn pages_events_in_reverse_order_without_replaying_records() {
+        let root = std::env::temp_dir().join(format!("socks-proxy-pages-{}", Uuid::new_v4()));
+        let path = root.join("connections.jsonl");
+        fs::create_dir_all(&root).unwrap();
+        let mut bytes = Vec::new();
+        for timestamp in 1..=5 {
+            serde_json::to_writer(&mut bytes, &event(timestamp, &format!("event-{timestamp}")))
+                .unwrap();
+            bytes.push(b'\n');
+        }
+        fs::write(&path, bytes).unwrap();
+        let store = ConnectionLogStore::new(&path);
+        let filter = ConnectionLogFilter::default();
+        let first = store.page(None, &filter, 2).unwrap();
+        assert_eq!(
+            first
+                .events
+                .iter()
+                .map(|event| event.connection_id)
+                .collect::<Vec<_>>(),
+            vec![5, 4]
+        );
+        let second = store.page(first.next_cursor, &filter, 2).unwrap();
+        assert_eq!(
+            second
+                .events
+                .iter()
+                .map(|event| event.connection_id)
+                .collect::<Vec<_>>(),
+            vec![3, 2]
+        );
+        let third = store.page(second.next_cursor, &filter, 2).unwrap();
+        assert_eq!(
+            third
+                .events
+                .iter()
+                .map(|event| event.connection_id)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert!(third.next_cursor.is_none());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn filtered_page_advances_past_non_matching_records() {
+        let root =
+            std::env::temp_dir().join(format!("socks-proxy-filter-pages-{}", Uuid::new_v4()));
+        let path = root.join("connections.jsonl");
+        fs::create_dir_all(&root).unwrap();
+        let mut bytes = Vec::new();
+        for timestamp in 1..=6 {
+            let mut item = event(timestamp, &format!("event-{timestamp}"));
+            item.outbound = if timestamp % 2 == 0 {
+                ConnectionOutbound::Proxy
+            } else {
+                ConnectionOutbound::Direct
+            };
+            serde_json::to_writer(&mut bytes, &item).unwrap();
+            bytes.push(b'\n');
+        }
+        fs::write(&path, bytes).unwrap();
+        let store = ConnectionLogStore::new(&path);
+        let filter = ConnectionLogFilter {
+            outbound: Some(ConnectionOutbound::Proxy),
+            ..ConnectionLogFilter::default()
+        };
+        let first = store.page(None, &filter, 2).unwrap();
+        assert_eq!(
+            first
+                .events
+                .iter()
+                .map(|event| event.connection_id)
+                .collect::<Vec<_>>(),
+            vec![6, 4]
+        );
+        let second = store.page(first.next_cursor, &filter, 2).unwrap();
+        assert_eq!(
+            second
+                .events
+                .iter()
+                .map(|event| event.connection_id)
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
+        assert!(second.next_cursor.is_none());
         let _ = fs::remove_dir_all(root);
     }
 }

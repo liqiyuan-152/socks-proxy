@@ -5,8 +5,9 @@ mod theme;
 #[cfg(windows)]
 mod tray;
 pub use controller::{
-    BackupPreview, DirectOnlyRuntime, ManagedDesktopController, MemoryCredentialVault, ProxyDraft,
-    RuleDraft, RuleTargetKind, SharedController, UiControlError, UiState,
+    BackupPreview, DirectOnlyRuntime, ManagedDesktopController, MemoryCredentialVault,
+    ModeSwitchJob, ProxyDraft, RuleDraft, RuleTargetKind, SharedController, UiControlError,
+    UiState,
 };
 
 use eframe::egui::{self, Align, Color32, FontId, Layout, RichText, Stroke, Vec2, ViewportCommand};
@@ -96,7 +97,6 @@ pub struct DesktopApp {
     pending_import: Option<(Vec<u8>, BackupPreview)>,
     pending: Option<PendingAction>,
     last_error: Option<UiControlError>,
-    last_success: Option<String>,
     selected_log_connection: Option<u64>,
     selected_proxy: Option<ProfileId>,
     selected_rule: Option<String>,
@@ -104,6 +104,12 @@ pub struct DesktopApp {
     log_filter: String,
     log_outbound: Option<crate::logs::ConnectionOutbound>,
     log_success: Option<bool>,
+    log_page_filter: crate::logs::ConnectionLogFilter,
+    log_page_events: Vec<crate::logs::ConnectionEvent>,
+    log_next_cursor: Option<crate::logs::ConnectionLogCursor>,
+    log_page_loaded: bool,
+    state_cache: UiState,
+    mode_switch_job: ModeSwitchJob,
     #[cfg(windows)]
     exit_state: ExitState,
     #[cfg(windows)]
@@ -123,17 +129,6 @@ enum PendingAction {
     ToggleRule(String, bool),
 }
 
-fn action_success_label(action: &PendingAction) -> &'static str {
-    match action {
-        PendingAction::Proxy(_) => "已切换当前代理",
-        PendingAction::Save(_) => "代理已保存",
-        PendingAction::SaveRule(_) => "规则已保存",
-        PendingAction::DeleteRule(_) => "规则已删除",
-        PendingAction::ToggleRule(_, true) => "规则已启用",
-        PendingAction::ToggleRule(_, false) => "规则已停用",
-    }
-}
-
 impl DesktopApp {
     pub fn new(
         context: &eframe::CreationContext<'_>,
@@ -142,6 +137,10 @@ impl DesktopApp {
         configure_fonts(&context.egui_ctx);
         egui_extras::install_image_loaders(&context.egui_ctx);
         theme::configure(&context.egui_ctx);
+        let state_cache = controller
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .state();
         let app = Self {
             page: Page::Status,
             controller,
@@ -151,7 +150,6 @@ impl DesktopApp {
             pending_import: None,
             pending: None,
             last_error: None,
-            last_success: None,
             selected_log_connection: None,
             selected_proxy: None,
             selected_rule: None,
@@ -159,6 +157,12 @@ impl DesktopApp {
             log_filter: String::new(),
             log_outbound: None,
             log_success: None,
+            log_page_filter: crate::logs::ConnectionLogFilter::default(),
+            log_page_events: Vec::new(),
+            log_next_cursor: None,
+            log_page_loaded: false,
+            state_cache: state_cache.clone(),
+            mode_switch_job: ModeSwitchJob::new(state_cache.clone()),
             #[cfg(windows)]
             exit_state: ExitState::Idle,
             #[cfg(windows)]
@@ -254,6 +258,9 @@ impl DesktopApp {
     }
 
     fn state(&self) -> UiState {
+        if self.mode_switch_job.is_running() {
+            return self.mode_switch_job.snapshot().clone();
+        }
         let mut controller = self
             .controller
             .lock()
@@ -294,7 +301,7 @@ impl DesktopApp {
                         RichText::new(if state.runtime.traffic_may_be_direct {
                             "代理接管失效，流量可能直连"
                         } else {
-                            "运行状态已同步"
+                            "网络状态"
                         })
                         .color(theme::MUTED),
                     );
@@ -307,16 +314,7 @@ impl DesktopApp {
 
     fn status_page(&mut self, ui: &mut egui::Ui, state: &UiState) {
         components::page_header(ui, "状态", "当前网络模式和实际运行状态", |_| {});
-        let applying = is_applying(state);
-        if applying {
-            components::operation_banner(
-                ui,
-                theme::BLUE,
-                "正在应用配置",
-                "网络内核正在更新，请等待当前操作完成。",
-            );
-            ui.add_space(10.0);
-        }
+        let applying = is_applying(state) || self.mode_switch_job.is_running();
         ui.label(RichText::new("代理模式").strong().color(theme::TEXT));
         ui.add_space(5.0);
         ui.horizontal(|ui| {
@@ -342,14 +340,6 @@ impl DesktopApp {
                     self.request_mode(mode, false);
                 }
             }
-        });
-        ui.horizontal(|ui| {
-            ui.colored_label(theme::AMBER, "!");
-            ui.label(
-                RichText::new("切换模式可能中断现有 SSH 等连接。新连接将使用新模式。")
-                    .small()
-                    .color(theme::AMBER),
-            );
         });
         self.error_banner(ui);
         ui.add_space(16.0);
@@ -443,7 +433,7 @@ impl DesktopApp {
         let failed_connections = total_connections.saturating_sub(successful_connections);
         components::section(ui, "连接统计（今日）", |ui| {
             ui.columns(4, |columns| {
-                for (column, (label, value, color)) in columns.into_iter().zip([
+                for (column, (label, value, color)) in columns.iter_mut().zip([
                     ("今日连接数", total_connections.to_string(), theme::TEXT),
                     ("成功数", successful_connections.to_string(), theme::GREEN),
                     ("失败数", failed_connections.to_string(), theme::RED),
@@ -735,10 +725,7 @@ impl DesktopApp {
             "查看已经脱敏的近期连接结果",
             |ui| {
                 if ui
-                    .add_enabled(
-                        !state.connection_events.is_empty(),
-                        egui::Button::new("清空"),
-                    )
+                    .add_enabled(!self.log_page_events.is_empty(), egui::Button::new("清空"))
                     .clicked()
                 {
                     let result = self
@@ -749,10 +736,11 @@ impl DesktopApp {
                     match result {
                         Ok(()) => {
                             clear_log_selection(&mut self.selected_log_connection);
-                            self.set_success("连接日志已清空");
+                            self.log_page_events.clear();
+                            self.log_next_cursor = None;
+                            self.log_page_loaded = true;
                         }
                         Err(error) => {
-                            self.last_success = None;
                             self.last_error = Some(error);
                         }
                     }
@@ -806,20 +794,33 @@ impl DesktopApp {
             }
         });
         ui.add_space(8.0);
-        if state.connection_events.is_empty() {
+        let filter = self.current_log_filter();
+        if (!self.log_page_loaded || filter != self.log_page_filter)
+            && !self.mode_switch_job.is_running()
+        {
+            self.load_log_page(None);
+        }
+        if has_unread_log_events(&state.connection_events, &self.log_page_events) {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("有新的连接日志").color(theme::MUTED));
+                if ui.button("刷新").clicked() {
+                    clear_log_selection(&mut self.selected_log_connection);
+                    self.load_log_page(None);
+                }
+            });
+            ui.add_space(6.0);
+        }
+        if self.log_page_events.is_empty() {
             components::empty_state(ui, "暂无连接记录。连接发生后会在这里显示脱敏摘要。");
             return;
         }
         components::section(ui, "连接记录", |ui| {
             table_header(ui, &["时间", "目标", "出站", "规则", "结果", ""]);
-            let mut matches = 0;
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    for event in state.connection_events.iter().rev().filter(|event| {
-                        log_matches(event, &self.log_filter, self.log_outbound, self.log_success)
-                    }) {
-                        matches += 1;
+                .show_rows(ui, 31.0, self.log_page_events.len(), |ui, row_range| {
+                    for row in row_range {
+                        let event = &self.log_page_events[row];
                         ui.horizontal(|ui| {
                             for value in [
                                 event_time(event.observed_at_unix_ms),
@@ -863,16 +864,22 @@ impl DesktopApp {
                                     (!selected).then_some(event.connection_id);
                             }
                         });
-                        if self.selected_log_connection == Some(event.connection_id) {
-                            egui::Frame::group(ui.style())
-                                .inner_margin(egui::Margin::same(10))
-                                .show(ui, |ui| log_detail(ui, event));
-                        }
-                        ui.separator();
                     }
                 });
-            if matches == 0 {
-                components::empty_state(ui, "没有匹配的连接记录。");
+            if let Some(cursor) = self.log_next_cursor
+                && ui.button("加载更多").clicked()
+            {
+                self.load_log_page(Some(cursor));
+            }
+            if let Some(event) = self
+                .log_page_events
+                .iter()
+                .find(|event| self.selected_log_connection == Some(event.connection_id))
+            {
+                ui.add_space(8.0);
+                egui::Frame::group(ui.style())
+                    .inner_margin(egui::Margin::same(10))
+                    .show(ui, |ui| log_detail(ui, event));
             }
         });
     }
@@ -913,7 +920,6 @@ impl DesktopApp {
                                     Ok(preview) => {
                                         self.pending_import = Some((bytes, preview));
                                         self.last_error = None;
-                                        self.last_success = None;
                                     }
                                     Err(error) => self.last_error = Some(error),
                                 }
@@ -942,8 +948,6 @@ impl DesktopApp {
                                     self.last_error = Some(UiControlError::Operation(format!(
                                         "写入备份失败: {error}"
                                     )));
-                                } else {
-                                    self.set_success("备份已导出");
                                 }
                             }
                             Err(error) => self.last_error = Some(error),
@@ -999,7 +1003,7 @@ impl DesktopApp {
                     ui.add_space(8.0);
                     components::operation_banner(
                         ui,
-                        theme::AMBER,
+                        theme::BLUE,
                         "认证信息需要补充",
                         "备份不包含密码；导入后需重新填写认证信息。",
                     );
@@ -1030,9 +1034,8 @@ impl DesktopApp {
                     .unwrap_or_else(|error| error.into_inner())
                     .import_backup(&bytes);
                 match result {
-                    Ok(()) => self.set_success("备份已导入"),
+                    Ok(()) => self.last_error = None,
                     Err(error) => {
-                        self.last_success = None;
                         self.last_error = Some(error);
                     }
                 }
@@ -1043,22 +1046,44 @@ impl DesktopApp {
     }
 
     fn request_mode(&mut self, mode: RoutingMode, _confirmed: bool) {
-        let result = self
-            .controller
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .switch_mode(mode, true);
+        if self.mode_switch_job.is_running() {
+            self.last_error = Some(mode_switch_conflict_error());
+            return;
+        }
         self.pending = None;
-        match result {
-            Ok(()) => self.set_success(format!("已切换为{}", mode_label(mode))),
-            Err(error) => {
-                self.last_success = None;
-                self.last_error = Some(error);
+        self.last_error = None;
+        if let Err(error) = self
+            .mode_switch_job
+            .start(Arc::clone(&self.controller), mode)
+        {
+            self.last_error = Some(error);
+        }
+    }
+
+    fn reject_conflicting_operation(&mut self) -> bool {
+        if !self.mode_switch_job.is_running() {
+            return false;
+        }
+        self.last_error = Some(mode_switch_conflict_error());
+        true
+    }
+
+    fn poll_mode(&mut self) {
+        if let Some(result) = self.mode_switch_job.poll() {
+            match result {
+                Ok(()) => self.last_error = None,
+                Err(error) => self.last_error = Some(error),
             }
+            self.state_cache = self.state();
+            self.mode_switch_job
+                .update_snapshot(self.state_cache.clone());
         }
     }
 
     fn request_proxy(&mut self, id: ProfileId, confirmed: bool) {
+        if self.reject_conflicting_operation() {
+            return;
+        }
         let result = self
             .controller
             .lock()
@@ -1068,15 +1093,17 @@ impl DesktopApp {
     }
 
     fn delete_proxy(&mut self, id: &ProfileId) {
+        if self.reject_conflicting_operation() {
+            return;
+        }
         let result = self
             .controller
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .delete_proxy(id);
         match result {
-            Ok(()) => self.set_success("已删除代理"),
+            Ok(()) => self.last_error = None,
             Err(error) => {
-                self.last_success = None;
                 self.last_error = Some(error);
             }
         }
@@ -1086,35 +1113,57 @@ impl DesktopApp {
         match result {
             Ok(()) => {
                 self.pending = None;
-                self.set_success(action_success_label(&pending));
+                self.last_error = None;
             }
             Err(UiControlError::ConfirmationRequired(message)) => {
                 self.pending = Some(pending);
-                self.last_success = None;
                 self.last_error = Some(UiControlError::ConfirmationRequired(message));
             }
             Err(error) => {
                 self.pending = None;
-                self.last_success = None;
                 self.last_error = Some(error);
             }
         }
     }
 
     fn error_banner(&self, ui: &mut egui::Ui) {
-        if let Some(message) = &self.last_success {
-            ui.add_space(8.0);
-            components::success_banner(ui, message);
-        }
         if let Some(error) = &self.last_error {
             ui.add_space(8.0);
             components::error_banner(ui, &error.to_string());
         }
     }
 
-    fn set_success(&mut self, message: impl Into<String>) {
-        self.last_error = None;
-        self.last_success = Some(message.into());
+    fn current_log_filter(&self) -> crate::logs::ConnectionLogFilter {
+        crate::logs::ConnectionLogFilter {
+            query: self.log_filter.clone(),
+            outbound: self.log_outbound,
+            success: self.log_success,
+        }
+    }
+
+    fn load_log_page(&mut self, cursor: Option<crate::logs::ConnectionLogCursor>) {
+        if self.mode_switch_job.is_running() {
+            return;
+        }
+        let filter = self.current_log_filter();
+        let result = self
+            .controller
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .connection_log_page(cursor, &filter);
+        match result {
+            Ok(page) => {
+                if cursor.is_none() {
+                    self.log_page_events = page.events;
+                    self.log_page_filter = filter;
+                    self.log_page_loaded = true;
+                } else {
+                    self.log_page_events.extend(page.events);
+                }
+                self.log_next_cursor = page.next_cursor;
+            }
+            Err(error) => self.last_error = Some(error),
+        }
     }
 
     #[cfg(windows)]
@@ -1124,6 +1173,10 @@ impl DesktopApp {
 
     #[cfg(windows)]
     fn start_exit(&mut self, context: &egui::Context) {
+        if self.reject_conflicting_operation() {
+            self.show_window(context);
+            return;
+        }
         if !self.exit_state.begin() {
             return;
         }
@@ -1180,7 +1233,6 @@ impl DesktopApp {
             .resizable(false)
             .open(&mut open)
             .show(context, |ui| {
-                ui.label("切换需要重启网络内核，现有 SSH 等连接可能中断。");
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     if ui.button("继续切换").clicked() {
@@ -1271,6 +1323,10 @@ impl DesktopApp {
             });
         });
         if save {
+            if self.reject_conflicting_operation() {
+                self.proxy_draft = Some(draft);
+                return;
+            }
             let pending = draft.clone();
             let result = self
                 .controller
@@ -1280,18 +1336,16 @@ impl DesktopApp {
             match result {
                 Ok(_) => {
                     wipe_string(&mut draft.password);
-                    self.set_success("代理已保存");
+                    self.last_error = None;
                     return;
                 }
                 Err(UiControlError::ConfirmationRequired(message)) => {
                     self.pending = Some(PendingAction::Save(pending));
-                    self.last_success = None;
                     self.last_error = Some(UiControlError::ConfirmationRequired(message));
                     wipe_string(&mut draft.password);
                     return;
                 }
                 Err(error) => {
-                    self.last_success = None;
                     self.last_error = Some(error);
                 }
             }
@@ -1305,6 +1359,9 @@ impl DesktopApp {
     }
 
     fn save_proxy(&mut self, draft: ProxyDraft, confirmed: bool) {
+        if self.reject_conflicting_operation() {
+            return;
+        }
         let result = self
             .controller
             .lock()
@@ -1314,17 +1371,19 @@ impl DesktopApp {
             Ok(_) => {
                 self.pending = None;
                 self.proxy_draft = None;
-                self.set_success("代理已保存");
+                self.last_error = None;
             }
             Err(error) => {
                 self.pending = None;
-                self.last_success = None;
                 self.last_error = Some(error);
             }
         }
     }
 
     fn delete_rule(&mut self, id: String, confirmed: bool) {
+        if self.reject_conflicting_operation() {
+            return;
+        }
         let result = self
             .controller
             .lock()
@@ -1334,6 +1393,9 @@ impl DesktopApp {
     }
 
     fn toggle_rule(&mut self, id: String, enabled: bool, confirmed: bool) {
+        if self.reject_conflicting_operation() {
+            return;
+        }
         let result = self
             .controller
             .lock()
@@ -1343,6 +1405,9 @@ impl DesktopApp {
     }
 
     fn save_rule(&mut self, draft: RuleDraft, confirmed: bool) {
+        if self.reject_conflicting_operation() {
+            return;
+        }
         let pending = draft.clone();
         let result = self
             .controller
@@ -1353,17 +1418,15 @@ impl DesktopApp {
             Ok(_) => {
                 self.pending = None;
                 self.rule_draft = None;
-                self.set_success("规则已保存");
+                self.last_error = None;
             }
             Err(UiControlError::ConfirmationRequired(message)) => {
                 self.pending = Some(PendingAction::SaveRule(pending));
-                self.last_success = None;
                 self.last_error = Some(UiControlError::ConfirmationRequired(message));
                 self.rule_draft = None;
             }
             Err(error) => {
                 self.pending = None;
-                self.last_success = None;
                 self.last_error = Some(error);
             }
         }
@@ -1447,17 +1510,15 @@ impl DesktopApp {
                 .save_rule(draft.clone(), false);
             match result {
                 Ok(_) => {
-                    self.set_success("规则已保存");
+                    self.last_error = None;
                     return;
                 }
                 Err(UiControlError::ConfirmationRequired(message)) => {
                     self.pending = Some(PendingAction::SaveRule(draft));
-                    self.last_success = None;
                     self.last_error = Some(UiControlError::ConfirmationRequired(message));
                     return;
                 }
                 Err(error) => {
-                    self.last_success = None;
                     self.last_error = Some(error);
                 }
             }
@@ -1520,6 +1581,7 @@ impl DesktopApp {
 impl eframe::App for DesktopApp {
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let context = root.ctx().clone();
+        self.poll_mode();
         #[cfg(windows)]
         self.process_tray(&context);
         #[cfg(windows)]
@@ -1534,10 +1596,15 @@ impl eframe::App for DesktopApp {
                 false
             }
         };
-        let state = (!exiting).then(|| self.state());
+        let state = (!exiting).then(|| {
+            let state = self.state();
+            self.state_cache = state.clone();
+            self.mode_switch_job.update_snapshot(state.clone());
+            state
+        });
         #[cfg(windows)]
         if let (Some(state), Some(tray)) = (state.as_ref(), &mut self.tray)
-            && let Err(error) = tray.sync(state)
+            && let Err(error) = tray.sync(state, self.mode_switch_job.is_running())
         {
             self.last_error = Some(UiControlError::Operation(error));
         }
@@ -1666,15 +1733,6 @@ fn rule_matches(rule: &crate::domain::RoutingRule, filter: &str) -> bool {
     pages::rules::matches(rule, filter)
 }
 
-fn log_matches(
-    event: &crate::logs::ConnectionEvent,
-    filter: &str,
-    outbound: Option<crate::logs::ConnectionOutbound>,
-    success: Option<bool>,
-) -> bool {
-    pages::logs::matches(event, filter, outbound, success)
-}
-
 fn detail_row(ui: &mut egui::Ui, label: &str, value: &str) {
     ui.label(RichText::new(label).weak());
     ui.label(value);
@@ -1726,6 +1784,21 @@ fn log_detail_row(ui: &mut egui::Ui, label: &str, value: &str) {
 
 fn clear_log_selection(selection: &mut Option<u64>) {
     *selection = None;
+}
+
+fn mode_switch_conflict_error() -> UiControlError {
+    UiControlError::Operation("正在切换代理模式，请等待当前操作完成".into())
+}
+
+fn has_unread_log_events(
+    recent_events: &[crate::logs::ConnectionEvent],
+    page_events: &[crate::logs::ConnectionEvent],
+) -> bool {
+    recent_events.last().is_some_and(|latest| {
+        !page_events
+            .iter()
+            .any(|event| event.connection_id == latest.connection_id)
+    })
 }
 
 fn phase_label(phase: crate::core::SwitchPhase) -> &'static str {
@@ -1942,31 +2015,28 @@ mod tests {
     }
 
     #[test]
-    fn log_filters_intersect_target_outbound_and_result() {
+    fn unread_log_hint_only_appears_for_an_event_missing_from_the_loaded_page() {
         let event = crate::logs::ConnectionEvent {
             observed_at_unix_ms: 0,
-            connection_id: 10,
-            target: "api.remote.example".into(),
+            connection_id: 17,
+            target: "example.test".into(),
             port: 443,
             outbound: crate::logs::ConnectionOutbound::Proxy,
-            rule: crate::logs::RuleAttribution::Known("远程服务".into()),
+            rule: crate::logs::RuleAttribution::Unknown,
             result: crate::logs::ConnectionResult::Success,
             config_revision: 1,
         };
-        assert!(log_matches(
-            &event,
-            "REMOTE",
-            Some(crate::logs::ConnectionOutbound::Proxy),
-            Some(true)
-        ));
-        assert!(!log_matches(
-            &event,
-            "REMOTE",
-            Some(crate::logs::ConnectionOutbound::Direct),
-            Some(true)
-        ));
-        assert!(!log_matches(&event, "不存在", None, None));
-        assert!(!log_matches(&event, "", None, Some(false)));
+        assert!(!has_unread_log_events(&[event.clone()], &[event.clone()]));
+        assert!(has_unread_log_events(&[event], &[]));
+        assert!(!has_unread_log_events(&[], &[]));
+    }
+
+    #[test]
+    fn conflicting_operations_report_a_readable_mode_switch_error() {
+        assert_eq!(
+            mode_switch_conflict_error().to_string(),
+            "正在切换代理模式，请等待当前操作完成"
+        );
     }
 
     #[test]
@@ -1993,22 +2063,6 @@ mod tests {
         assert_eq!(
             global_phase_label(crate::core::SwitchPhase::Error),
             "运行异常"
-        );
-    }
-
-    #[test]
-    fn action_success_labels_describe_committed_actions() {
-        assert_eq!(
-            action_success_label(&PendingAction::Proxy(ProfileId::new())),
-            "已切换当前代理"
-        );
-        assert_eq!(
-            action_success_label(&PendingAction::ToggleRule("rule-a".into(), true)),
-            "规则已启用"
-        );
-        assert_eq!(
-            action_success_label(&PendingAction::ToggleRule("rule-a".into(), false)),
-            "规则已停用"
         );
     }
 

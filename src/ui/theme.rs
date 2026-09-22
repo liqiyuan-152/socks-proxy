@@ -18,7 +18,6 @@ pub const CONTROL_MIN_HEIGHT: f32 = 32.0;
 pub const BLUE: Color32 = Color32::from_rgb(33, 120, 232);
 pub const BLUE_SOFT: Color32 = Color32::from_rgb(232, 242, 255);
 pub const GREEN: Color32 = Color32::from_rgb(14, 165, 91);
-pub const AMBER: Color32 = Color32::from_rgb(217, 119, 6);
 pub const RED: Color32 = Color32::from_rgb(220, 55, 55);
 pub const TEXT: Color32 = Color32::from_rgb(28, 42, 64);
 pub const MUTED: Color32 = Color32::from_rgb(100, 116, 139);

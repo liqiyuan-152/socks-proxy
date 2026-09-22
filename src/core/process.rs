@@ -466,12 +466,11 @@ fn backend_error(stage: BackendStage, error: io::Error) -> BackendError {
     }
 }
 
-fn hidden_command(program: &Path) -> Command {
+pub(crate) fn hidden_command(program: &Path) -> Command {
     let command = Command::new(program);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let mut command = command;
         command.creation_flags(CREATE_NO_WINDOW);
         command
@@ -482,9 +481,18 @@ fn hidden_command(program: &Path) -> Command {
     }
 }
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn hidden_commands_use_create_no_window() {
+        assert_eq!(CREATE_NO_WINDOW, 0x0800_0000);
+    }
 
     #[test]
     fn parses_only_the_pinned_version_line_shape() {

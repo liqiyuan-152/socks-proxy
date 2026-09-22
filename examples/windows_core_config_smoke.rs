@@ -50,6 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         cache_path: &cache_path,
         control_endpoints: &["127.0.0.1:19090".parse()?],
+        control_api: None,
         upstream_addresses: &["203.0.113.9".parse()?],
     })?;
     let config = compiled.write_restricted(&work_dir)?;

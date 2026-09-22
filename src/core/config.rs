@@ -54,6 +54,35 @@ pub struct DirectDnsServer {
     pub port: u16,
 }
 
+#[derive(Clone)]
+pub struct CoreControlApi {
+    pub endpoint: SocketAddr,
+    secret: String,
+}
+
+impl CoreControlApi {
+    pub fn new(endpoint: SocketAddr, secret: impl Into<String>) -> Self {
+        Self {
+            endpoint,
+            secret: secret.into(),
+        }
+    }
+
+    pub(crate) fn secret(&self) -> &str {
+        &self.secret
+    }
+}
+
+impl fmt::Debug for CoreControlApi {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CoreControlApi")
+            .field("endpoint", &self.endpoint)
+            .field("secret", &"[REDACTED]")
+            .finish()
+    }
+}
+
 pub struct CoreConfigInput<'a> {
     pub profile: &'a ProxyProfile,
     pub credentials: Option<&'a ProxyCredentials>,
@@ -62,6 +91,7 @@ pub struct CoreConfigInput<'a> {
     pub direct_dns: DirectDnsServer,
     pub cache_path: &'a Path,
     pub control_endpoints: &'a [SocketAddr],
+    pub control_api: Option<&'a CoreControlApi>,
     pub upstream_addresses: &'a [IpAddr],
 }
 
@@ -95,6 +125,7 @@ impl From<io::Error> for CoreConfigError {
 pub struct CompiledCoreConfig {
     bytes: Vec<u8>,
     route_rule_ids: Vec<Option<String>>,
+    control_api: Option<CoreControlApi>,
 }
 
 impl fmt::Debug for CompiledCoreConfig {
@@ -138,26 +169,50 @@ impl CompiledCoreConfig {
             .ok_or(CoreConfigError::Validation("缓存路径不是有效 Unicode"))?;
         let mut route_rules = base_exception_rules(&input);
         let mut route_rule_ids = vec![None; route_rules.len()];
-        if input.mode == RoutingMode::Rules {
-            route_rule_ids.extend(user_route_rule_ids(input.rules, true));
-            route_rules.extend(user_route_rules(input.rules, true));
-            if input.rules.iter().any(is_enabled_ip_rule) {
-                route_rules.push(direct_resolve_rule());
-                route_rule_ids.push(None);
-                route_rule_ids.extend(user_route_rule_ids(input.rules, false));
-                route_rules.extend(user_route_rules(input.rules, false));
-            }
-        } else {
-            route_rules.push(direct_resolve_rule());
+        route_rules.push(json!({
+            "ip_is_private": true,
+            "action": "route",
+            "outbound": DIRECT_OUTBOUND
+        }));
+        route_rule_ids.push(None);
+        // The same configuration must support all clash modes.  Mode-specific
+        // branches keep Rule <-> Global transitions inside the running core.
+        route_rule_ids.extend(user_route_rule_ids(input.rules, true));
+        route_rules.extend(user_route_rules(input.rules, true, "Rule"));
+        if input.rules.iter().any(is_enabled_ip_rule) {
+            route_rules.push(with_clash_mode(direct_resolve_rule(), "Rule"));
             route_rule_ids.push(None);
-            route_rules.push(json!({
-                "ip_all_private": true,
-                "action": "route",
-                "outbound": DIRECT_OUTBOUND
-            }));
-            route_rule_ids.push(None);
+            route_rule_ids.extend(user_route_rule_ids(input.rules, false));
+            route_rules.extend(user_route_rules(input.rules, false, "Rule"));
         }
+        route_rules.push(clash_mode_route("Rule", DIRECT_OUTBOUND));
+        route_rule_ids.push(None);
+        route_rules.push(clash_mode_route("Global", PROXY_OUTBOUND));
+        route_rule_ids.push(None);
+        route_rules.push(clash_mode_route("Direct", DIRECT_OUTBOUND));
+        route_rule_ids.push(None);
 
+        let control_api = input.control_api.cloned();
+
+        let mut experimental = Map::from_iter([(
+            "cache_file".into(),
+            json!({
+                "enabled": true,
+                "path": cache_path,
+                "store_fakeip": true,
+                "strict_mode": true
+            }),
+        )]);
+        if let Some(api) = control_api.as_ref() {
+            experimental.insert(
+                "clash_api".into(),
+                json!({
+                    "external_controller": api.endpoint.to_string(),
+                    "secret": api.secret(),
+                    "default_mode": "Rule"
+                }),
+            );
+        }
         let document = json!({
             "log": {"level": "debug", "timestamp": true},
             "dns": {
@@ -201,25 +256,15 @@ impl CompiledCoreConfig {
                 "auto_detect_interface": true,
                 "default_domain_resolver": {"server": DIRECT_DNS},
                 "rules": route_rules,
-                "final": if input.mode == RoutingMode::Rules {
-                    DIRECT_OUTBOUND
-                } else {
-                    PROXY_OUTBOUND
-                }
+                "final": DIRECT_OUTBOUND
             },
-            "experimental": {
-                "cache_file": {
-                    "enabled": true,
-                    "path": cache_path,
-                    "store_fakeip": true,
-                    "strict_mode": true
-                }
-            }
+            "experimental": experimental
         });
         let bytes = serde_json::to_vec_pretty(&document).map_err(CoreConfigError::Json)?;
         Ok(Self {
             bytes,
             route_rule_ids,
+            control_api,
         })
     }
 
@@ -232,6 +277,10 @@ impl CompiledCoreConfig {
 
     pub fn route_rule_ids(&self) -> &[Option<String>] {
         &self.route_rule_ids
+    }
+
+    pub(crate) fn control_api(&self) -> Option<&CoreControlApi> {
+        self.control_api.as_ref()
     }
 
     #[cfg(test)]
@@ -282,7 +331,7 @@ impl<'a> CoreConfigValidator<'a> {
     }
 
     pub fn command(&self, config_path: &Path) -> Command {
-        let mut command = Command::new(self.core_path);
+        let mut command = super::process::hidden_command(self.core_path);
         command.arg("check").arg("-c").arg(config_path);
         command
     }
@@ -413,7 +462,7 @@ fn direct_exception_rule(field: &str, target: Value, port: u16) -> Value {
     Value::Object(std::mem::take(&mut rule))
 }
 
-fn user_route_rules(rules: &[RoutingRule], domains: bool) -> Vec<Value> {
+fn user_route_rules(rules: &[RoutingRule], domains: bool, clash_mode: &str) -> Vec<Value> {
     rules
         .iter()
         .filter(|rule| {
@@ -453,9 +502,26 @@ fn user_route_rules(rules: &[RoutingRule], domains: bool) -> Vec<Value> {
             }
             value.insert("action".into(), Value::String("route".into()));
             value.insert("outbound".into(), Value::String(PROXY_OUTBOUND.into()));
+            value.insert("clash_mode".into(), Value::String(clash_mode.into()));
             route_rule_port_variants(value, rule)
         })
         .collect()
+}
+
+fn with_clash_mode(mut value: Value, clash_mode: &str) -> Value {
+    value
+        .as_object_mut()
+        .expect("route rule is an object")
+        .insert("clash_mode".into(), Value::String(clash_mode.into()));
+    value
+}
+
+fn clash_mode_route(clash_mode: &str, outbound: &str) -> Value {
+    json!({
+        "clash_mode": clash_mode,
+        "action": "route",
+        "outbound": outbound
+    })
 }
 
 fn user_route_rule_ids(rules: &[RoutingRule], domains: bool) -> Vec<Option<String>> {
@@ -715,9 +781,24 @@ mod tests {
             },
             cache_path: cache,
             control_endpoints: &["127.0.0.1:19090".parse().unwrap()],
+            control_api: None,
             upstream_addresses: &["203.0.113.9".parse().unwrap()],
         })
         .unwrap()
+    }
+
+    #[test]
+    fn config_validator_builds_the_sing_box_check_command() {
+        let validator = CoreConfigValidator::new(Path::new("sing-box.exe"));
+        let command = validator.command(Path::new("runtime/config.json"));
+        assert_eq!(command.get_program(), "sing-box.exe");
+        assert_eq!(
+            command
+                .get_args()
+                .map(|argument| argument.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+            ["check", "-c", "runtime/config.json"]
+        );
     }
 
     #[test]
@@ -767,29 +848,30 @@ mod tests {
         assert_eq!(route_rules[2]["port"], json!([19090]));
         assert_eq!(route_rules[3]["ip_cidr"], json!(["192.0.2.53/32"]));
         assert_eq!(route_rules[3]["port"], json!([53]));
-        assert_eq!(route_rules[4]["domain"], json!(["exact.example"]));
-        assert_eq!(route_rules[4]["port"], json!([22, 443]));
-        assert!(route_rules[4].get("port_range").is_none());
+        assert_eq!(route_rules[4]["ip_is_private"], true);
         assert_eq!(route_rules[5]["domain"], json!(["exact.example"]));
-        assert_eq!(route_rules[5]["port_range"], json!(["8000:9000"]));
-        assert!(route_rules[5].get("port").is_none());
-        assert_eq!(route_rules[6]["domain_suffix"], json!(["suffix.example"]));
+        assert_eq!(route_rules[5]["port"], json!([22, 443]));
+        assert!(route_rules[5].get("port_range").is_none());
+        assert_eq!(route_rules[6]["domain"], json!(["exact.example"]));
+        assert_eq!(route_rules[6]["port_range"], json!(["8000:9000"]));
         assert!(route_rules[6].get("port").is_none());
-        assert_eq!(route_rules[7]["action"], "resolve");
-        assert_eq!(route_rules[7]["server"], DIRECT_DNS);
-        assert_eq!(route_rules[8]["ip_cidr"], json!(["203.0.113.10/32"]));
-        assert_eq!(route_rules[9]["ip_cidr"], json!(["2001:db8::/32"]));
-        assert!(route_rules[10]["ip_cidr"].as_array().unwrap().len() > 1);
+        assert_eq!(route_rules[7]["domain_suffix"], json!(["suffix.example"]));
+        assert!(route_rules[7].get("port").is_none());
+        assert_eq!(route_rules[8]["action"], "resolve");
+        assert_eq!(route_rules[8]["server"], DIRECT_DNS);
+        assert_eq!(route_rules[9]["ip_cidr"], json!(["203.0.113.10/32"]));
+        assert_eq!(route_rules[10]["ip_cidr"], json!(["2001:db8::/32"]));
+        assert!(route_rules[11]["ip_cidr"].as_array().unwrap().len() > 1);
         assert_eq!(json["route"]["final"], DIRECT_OUTBOUND);
         assert_eq!(json["experimental"]["cache_file"]["strict_mode"], true);
         assert_eq!(compiled.route_rule_ids().len(), route_rules.len());
-        assert_eq!(compiled.route_rule_ids()[4].as_deref(), Some("domain"));
         assert_eq!(compiled.route_rule_ids()[5].as_deref(), Some("domain"));
-        assert_eq!(compiled.route_rule_ids()[6].as_deref(), Some("suffix"));
-        assert_eq!(compiled.route_rule_ids()[7], None);
-        assert_eq!(compiled.route_rule_ids()[8].as_deref(), Some("ip"));
-        assert_eq!(compiled.route_rule_ids()[9].as_deref(), Some("cidr"));
-        assert_eq!(compiled.route_rule_ids()[10].as_deref(), Some("range"));
+        assert_eq!(compiled.route_rule_ids()[6].as_deref(), Some("domain"));
+        assert_eq!(compiled.route_rule_ids()[7].as_deref(), Some("suffix"));
+        assert_eq!(compiled.route_rule_ids()[8], None);
+        assert_eq!(compiled.route_rule_ids()[9].as_deref(), Some("ip"));
+        assert_eq!(compiled.route_rule_ids()[10].as_deref(), Some("cidr"));
+        assert_eq!(compiled.route_rule_ids()[11].as_deref(), Some("range"));
     }
 
     #[test]
@@ -810,6 +892,7 @@ mod tests {
                 },
                 cache_path: Path::new("cache.db"),
                 control_endpoints: &[],
+                control_api: None,
                 upstream_addresses: &[],
             })
             .is_err()
@@ -829,7 +912,7 @@ mod tests {
     }
 
     #[test]
-    fn global_mode_places_private_exception_before_proxy_final() {
+    fn compiled_config_contains_rule_global_and_direct_branches() {
         let profile = profile(false);
         let compiled = compile(
             &profile,
@@ -839,9 +922,55 @@ mod tests {
             Path::new("cache.db"),
         );
         let json = compiled.json();
-        assert_eq!(json["route"]["rules"][4]["action"], "resolve");
-        assert_eq!(json["route"]["rules"][5]["ip_all_private"], true);
-        assert_eq!(json["route"]["final"], PROXY_OUTBOUND);
+        let route_rules = json["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules[4]["ip_is_private"], true);
+        assert!(
+            route_rules.iter().any(|rule| {
+                rule["clash_mode"] == "Rule" && rule["outbound"] == DIRECT_OUTBOUND
+            })
+        );
+        assert!(
+            route_rules.iter().any(|rule| {
+                rule["clash_mode"] == "Global" && rule["outbound"] == PROXY_OUTBOUND
+            })
+        );
+        assert!(
+            route_rules.iter().any(|rule| {
+                rule["clash_mode"] == "Direct" && rule["outbound"] == DIRECT_OUTBOUND
+            })
+        );
+        assert_eq!(json["route"]["final"], DIRECT_OUTBOUND);
+    }
+
+    #[test]
+    fn control_api_is_loopback_authenticated_and_redacted_from_debug_output() {
+        let profile = profile(false);
+        let api = CoreControlApi::new("127.0.0.1:19091".parse().unwrap(), "test-control-secret");
+        let compiled = CompiledCoreConfig::compile(CoreConfigInput {
+            profile: &profile,
+            credentials: None,
+            mode: RoutingMode::Rules,
+            rules: &[],
+            direct_dns: DirectDnsServer {
+                address: "192.0.2.53".parse().unwrap(),
+                port: 53,
+            },
+            cache_path: Path::new("cache.db"),
+            control_endpoints: &[api.endpoint],
+            control_api: Some(&api),
+            upstream_addresses: &[],
+        })
+        .unwrap();
+        assert_eq!(
+            compiled.json()["experimental"]["clash_api"]["external_controller"],
+            "127.0.0.1:19091"
+        );
+        assert_eq!(
+            compiled.json()["experimental"]["clash_api"]["default_mode"],
+            "Rule"
+        );
+        assert!(!format!("{api:?}").contains("test-control-secret"));
+        assert!(!format!("{compiled:?}").contains("test-control-secret"));
     }
 
     #[test]
@@ -863,7 +992,7 @@ mod tests {
             .as_array()
             .unwrap()
             .clone();
-        assert_eq!(route_rules[4]["domain"], json!(["proxy-only.example"]));
+        assert_eq!(route_rules[5]["domain"], json!(["proxy-only.example"]));
         assert!(route_rules.iter().all(|rule| rule["action"] != "resolve"));
     }
 

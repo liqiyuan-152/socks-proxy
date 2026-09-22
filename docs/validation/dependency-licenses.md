@@ -23,6 +23,8 @@
 
 桌面壳固定 `tray-icon 0.25.1`，源码位于 `third_party/tray-icon-0.25.1`，并通过 Cargo `[patch.crates-io]` 使用。项目补丁仅让 Windows 固定 GUID 同样参与运行期 tooltip 的 `NIM_MODIFY`，解决 Explorer 拒绝更新的问题；上游 `LICENSE-MIT`、`LICENSE-APACHE` 和 SPDX 清单均随源码保留。
 
+界面导航图标固定为 `lucide-static 0.468.0` 的 `chart-no-axes-combined`、`server`、`network`、`file-text` 和 `settings` SVG，资源与 ISC 原文位于 `assets/lucide/`。构建时将固定 SVG 转换为同目录 64 px PNG，并由 egui 编译时内嵌，不在运行时联网加载；图标栏保留页面名称工具提示，常规宽度保留图标加文字标签。
+
 ## 发行条件
 
 - sing-box 及多个 SagerNet 依赖为 GPL-3.0-or-later。发行组合内核时必须附许可证和完整对应源码，包括本项目补丁、构建脚本、版本锁及用于该二进制的依赖源码；桌面应用的发行许可必须与该组合方式兼容。最终安装包不能只附一个 sing-box LICENSE 文件。

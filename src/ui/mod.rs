@@ -1,4 +1,7 @@
+mod components;
 mod controller;
+mod pages;
+mod theme;
 #[cfg(windows)]
 mod tray;
 pub use controller::{
@@ -7,6 +10,8 @@ pub use controller::{
 };
 
 use eframe::egui::{self, Align, Color32, FontId, Layout, RichText, Stroke, Vec2, ViewportCommand};
+#[cfg(windows)]
+use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 
 use crate::{
@@ -41,6 +46,45 @@ impl Page {
             Self::Settings => "设置",
         }
     }
+
+    fn icon(self) -> egui::ImageSource<'static> {
+        match self {
+            Self::Status => egui::include_image!("../../assets/lucide/status.png"),
+            Self::Proxies => egui::include_image!("../../assets/lucide/proxies.png"),
+            Self::Rules => egui::include_image!("../../assets/lucide/rules.png"),
+            Self::Logs => egui::include_image!("../../assets/lucide/logs.png"),
+            Self::Settings => egui::include_image!("../../assets/lucide/settings.png"),
+        }
+    }
+
+    #[cfg(test)]
+    fn icon_resource_name(self) -> &'static str {
+        match self {
+            Self::Status => "status.png",
+            Self::Proxies => "proxies.png",
+            Self::Rules => "rules.png",
+            Self::Logs => "logs.png",
+            Self::Settings => "settings.png",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct NavigationLayout {
+    compact: bool,
+    width: f32,
+}
+
+fn navigation_layout(available_width: f32) -> NavigationLayout {
+    let compact = available_width < theme::NAVIGATION_COMPACT_BREAKPOINT;
+    NavigationLayout {
+        compact,
+        width: if compact {
+            theme::NAVIGATION_COMPACT_WIDTH
+        } else {
+            theme::NAVIGATION_WIDE_WIDTH
+        },
+    }
 }
 
 pub struct DesktopApp {
@@ -52,21 +96,42 @@ pub struct DesktopApp {
     pending_import: Option<(Vec<u8>, BackupPreview)>,
     pending: Option<PendingAction>,
     last_error: Option<UiControlError>,
+    last_success: Option<String>,
+    selected_log_connection: Option<u64>,
+    selected_proxy: Option<ProfileId>,
+    selected_rule: Option<String>,
+    rule_filter: String,
+    log_filter: String,
+    log_outbound: Option<crate::logs::ConnectionOutbound>,
+    log_success: Option<bool>,
+    #[cfg(windows)]
+    exit_state: ExitState,
     #[cfg(windows)]
     window_visible: bool,
-    exiting: bool,
+    #[cfg(windows)]
+    exit_receiver: Option<Receiver<Result<(), UiControlError>>>,
     #[cfg(windows)]
     tray: Option<tray::TrayManager>,
 }
 
 #[derive(Clone)]
 enum PendingAction {
-    Mode(RoutingMode),
     Proxy(ProfileId),
     Save(ProxyDraft),
     SaveRule(RuleDraft),
     DeleteRule(String),
     ToggleRule(String, bool),
+}
+
+fn action_success_label(action: &PendingAction) -> &'static str {
+    match action {
+        PendingAction::Proxy(_) => "已切换当前代理",
+        PendingAction::Save(_) => "代理已保存",
+        PendingAction::SaveRule(_) => "规则已保存",
+        PendingAction::DeleteRule(_) => "规则已删除",
+        PendingAction::ToggleRule(_, true) => "规则已启用",
+        PendingAction::ToggleRule(_, false) => "规则已停用",
+    }
 }
 
 impl DesktopApp {
@@ -75,7 +140,8 @@ impl DesktopApp {
         controller: Arc<Mutex<Box<dyn SharedController>>>,
     ) -> Self {
         configure_fonts(&context.egui_ctx);
-        configure_style(&context.egui_ctx);
+        egui_extras::install_image_loaders(&context.egui_ctx);
+        theme::configure(&context.egui_ctx);
         let app = Self {
             page: Page::Status,
             controller,
@@ -85,9 +151,20 @@ impl DesktopApp {
             pending_import: None,
             pending: None,
             last_error: None,
+            last_success: None,
+            selected_log_connection: None,
+            selected_proxy: None,
+            selected_rule: None,
+            rule_filter: String::new(),
+            log_filter: String::new(),
+            log_outbound: None,
+            log_success: None,
+            #[cfg(windows)]
+            exit_state: ExitState::Idle,
             #[cfg(windows)]
             window_visible: true,
-            exiting: false,
+            #[cfg(windows)]
+            exit_receiver: None,
             #[cfg(windows)]
             tray: None,
         };
@@ -114,36 +191,64 @@ impl DesktopApp {
     }
 
     fn navigation(&mut self, root: &mut egui::Ui) {
+        let navigation = navigation_layout(root.available_width());
         egui::Panel::left("navigation")
-            .exact_size(176.0)
+            .exact_size(navigation.width)
             .resizable(false)
             .frame(
                 egui::Frame::side_top_panel(root.style())
-                    .fill(Color32::from_rgb(245, 246, 248))
-                    .inner_margin(egui::Margin::symmetric(14, 16)),
+                    .fill(theme::CANVAS)
+                    .stroke(Stroke::new(1.0, theme::BORDER))
+                    .inner_margin(egui::Margin::symmetric(10, 14)),
             )
             .show(root, |ui| {
-                ui.label(
-                    RichText::new("Socks Proxy")
-                        .font(FontId::proportional(19.0))
-                        .strong(),
-                );
-                ui.add_space(20.0);
+                let compact = navigation.compact;
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("●").size(20.0).color(theme::BLUE));
+                    if !compact {
+                        ui.label(
+                            RichText::new("Socks Proxy")
+                                .font(FontId::proportional(18.0))
+                                .strong()
+                                .color(theme::TEXT),
+                        );
+                    }
+                });
+                ui.add_space(18.0);
                 for page in Page::ALL {
                     let selected = self.page == page;
-                    if ui
-                        .add_sized(
-                            [148.0, 36.0],
-                            egui::Button::selectable(selected, page.label()),
+                    let icon = egui::Image::new(page.icon())
+                        .fit_to_exact_size(Vec2::splat(theme::ICON_SIZE));
+                    let response = if compact {
+                        components::icon_button(
+                            ui,
+                            icon,
+                            page.label(),
+                            Vec2::new(ui.available_width(), theme::NAVIGATION_ROW_HEIGHT),
+                            true,
+                            selected,
                         )
-                        .clicked()
-                    {
+                    } else {
+                        let button =
+                            egui::Button::image_and_text(icon, page.label()).selected(selected);
+                        ui.add_sized([ui.available_width(), theme::NAVIGATION_ROW_HEIGHT], button)
+                            .on_hover_text(page.label())
+                    };
+                    if response.clicked() {
                         self.page = page;
                     }
                     ui.add_space(4.0);
                 }
                 ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
-                    ui.label(RichText::new("Windows 10/11 x64").small().weak());
+                    if compact {
+                        ui.label(RichText::new("v1.3").small().color(theme::MUTED));
+                    } else {
+                        ui.label(
+                            RichText::new("Windows 10/11 x64")
+                                .small()
+                                .color(theme::MUTED),
+                        );
+                    }
                 });
             });
     }
@@ -175,34 +280,45 @@ impl DesktopApp {
                         }
                         None => (Color32::from_rgb(181, 55, 55), "异常"),
                     };
-                    ui.colored_label(color, "●");
-                    ui.label(text);
+                    components::state_badge(ui, color, text);
                     ui.separator();
-                    ui.label(if state.runtime.traffic_may_be_direct {
-                        "代理接管失效，流量可能直连"
-                    } else {
-                        "运行状态已同步"
-                    });
+                    let proxy_name = state
+                        .config
+                        .profiles
+                        .active()
+                        .map(|profile| profile.name.as_str())
+                        .unwrap_or("未选择代理");
+                    ui.label(RichText::new(format!("当前代理: {proxy_name}")).color(theme::MUTED));
+                    ui.separator();
+                    ui.label(
+                        RichText::new(if state.runtime.traffic_may_be_direct {
+                            "代理接管失效，流量可能直连"
+                        } else {
+                            "运行状态已同步"
+                        })
+                        .color(theme::MUTED),
+                    );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(
-                            RichText::new(match state.runtime.phase {
-                                crate::core::SwitchPhase::Direct => "内核未运行",
-                                crate::core::SwitchPhase::Running => "内核运行中",
-                                crate::core::SwitchPhase::Reconfiguring => "正在应用",
-                                crate::core::SwitchPhase::Error => "运行异常",
-                            })
-                            .weak(),
-                        );
+                        ui.label(RichText::new(global_phase_label(state.runtime.phase)).weak());
                     });
                 });
             });
     }
 
     fn status_page(&mut self, ui: &mut egui::Ui, state: &UiState) {
-        page_heading(ui, "状态", "当前网络模式和实际运行状态");
-        ui.add_space(18.0);
-        ui.label(RichText::new("代理模式").strong());
-        ui.add_space(6.0);
+        components::page_header(ui, "状态", "当前网络模式和实际运行状态", |_| {});
+        let applying = is_applying(state);
+        if applying {
+            components::operation_banner(
+                ui,
+                theme::BLUE,
+                "正在应用配置",
+                "网络内核正在更新，请等待当前操作完成。",
+            );
+            ui.add_space(10.0);
+        }
+        ui.label(RichText::new("代理模式").strong().color(theme::TEXT));
+        ui.add_space(5.0);
         ui.horizontal(|ui| {
             for (mode, label) in [
                 (RoutingMode::Direct, "全局直连"),
@@ -210,7 +326,16 @@ impl DesktopApp {
                 (RoutingMode::GlobalProxy, "全局代理"),
             ] {
                 if ui
-                    .selectable_label(state.runtime.applied_mode == Some(mode), label)
+                    .add_enabled_ui(!applying, |ui| {
+                        ui.add_sized(
+                            [142.0, 38.0],
+                            egui::Button::selectable(
+                                state.runtime.applied_mode == Some(mode),
+                                label,
+                            ),
+                        )
+                    })
+                    .inner
                     .clicked()
                     && state.runtime.applied_mode != Some(mode)
                 {
@@ -218,157 +343,397 @@ impl DesktopApp {
                 }
             }
         });
-        self.error_banner(ui);
-        ui.add_space(22.0);
-        ui.label(RichText::new("当前代理").strong());
-        ui.add_space(6.0);
-        let active = state.config.profiles.active();
-        egui::ComboBox::from_id_salt("active_proxy")
-            .width(320.0)
-            .selected_text(active.map_or("未选择", |profile| profile.name.as_str()))
-            .show_ui(ui, |ui| {
-                for profile in state.config.profiles.iter() {
-                    if ui
-                        .selectable_label(
-                            state.config.profiles.active_id() == Some(&profile.id),
-                            &profile.name,
-                        )
-                        .clicked()
-                        && state.config.profiles.active_id() != Some(&profile.id)
-                    {
-                        self.request_proxy(profile.id.clone(), false);
-                    }
-                }
-            });
-        ui.add_space(28.0);
-        egui::Grid::new("status_details")
-            .num_columns(2)
-            .spacing([36.0, 12.0])
-            .show(ui, |ui| {
-                detail_row(ui, "运行状态", phase_label(state.runtime.phase));
-                detail_row(
-                    ui,
-                    "已应用配置",
-                    &format!("修订 {}", state.runtime.applied_revision),
-                );
-                detail_row(
-                    ui,
-                    "DNS",
-                    if state.runtime.applied_mode == Some(RoutingMode::Direct) {
-                        "系统 DNS"
-                    } else {
-                        "受管理"
-                    },
-                );
-                detail_row(
-                    ui,
-                    "最近错误",
-                    state.runtime.failure.as_deref().unwrap_or("无"),
-                );
-            });
-    }
-
-    fn proxies_page(&mut self, ui: &mut egui::Ui, state: &UiState) {
         ui.horizontal(|ui| {
-            ui.heading("代理");
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.button("+ 新建代理").clicked() {
-                    self.last_error = None;
-                    self.proxy_draft = Some(ProxyDraft::default());
-                }
-            });
+            ui.colored_label(theme::AMBER, "!");
+            ui.label(
+                RichText::new("切换模式可能中断现有 SSH 等连接。新连接将使用新模式。")
+                    .small()
+                    .color(theme::AMBER),
+            );
         });
         self.error_banner(ui);
         ui.add_space(16.0);
-        egui::Grid::new("proxy_table")
-            .num_columns(7)
-            .spacing([20.0, 10.0])
-            .striped(true)
-            .show(ui, |ui| {
-                for heading in ["名称", "协议", "服务器", "认证", "状态", "", ""] {
-                    ui.label(RichText::new(heading).strong());
-                }
-                ui.end_row();
-                for profile in state.config.profiles.iter() {
-                    ui.label(&profile.name);
-                    ui.label(protocol_label(profile.protocol));
-                    ui.label(format!("{}:{}", host_label(&profile.host), profile.port));
-                    ui.label(if profile.auth_enabled {
-                        "已配置"
-                    } else {
-                        "无"
-                    });
-                    ui.label(if state.config.profiles.active_id() == Some(&profile.id) {
-                        "当前"
-                    } else {
-                        ""
-                    });
-                    if ui.small_button("编辑").clicked() {
-                        self.last_error = None;
-                        self.proxy_draft = Some(ProxyDraft::from_profile(profile));
-                    }
-                    if ui.small_button("删除").clicked() {
-                        self.delete_proxy(&profile.id);
-                    }
-                    ui.end_row();
+        ui.columns(2, |columns| {
+            components::section(&mut columns[0], "当前代理信息", |ui| {
+                let active = state.config.profiles.active();
+                detail_grid(
+                    ui,
+                    [
+                        (
+                            "代理名称",
+                            active.map_or("未选择".into(), |profile| profile.name.clone()),
+                        ),
+                        (
+                            "协议",
+                            active.map_or("-".into(), |profile| {
+                                protocol_label(profile.protocol).into()
+                            }),
+                        ),
+                        (
+                            "服务器",
+                            active.map_or("-".into(), |profile| {
+                                format!("{}:{}", host_label(&profile.host), profile.port)
+                            }),
+                        ),
+                        (
+                            "认证状态",
+                            active.map_or("-".into(), |profile| {
+                                if profile.auth_enabled {
+                                    "已启用".into()
+                                } else {
+                                    "未启用".into()
+                                }
+                            }),
+                        ),
+                    ],
+                );
+                ui.add_space(6.0);
+                ui.add_enabled_ui(!applying, |ui| {
+                    egui::ComboBox::from_id_salt("active_proxy")
+                        .width(ui.available_width())
+                        .selected_text("切换当前代理")
+                        .show_ui(ui, |ui| {
+                            for profile in state.config.profiles.iter() {
+                                if ui
+                                    .selectable_label(
+                                        state.config.profiles.active_id() == Some(&profile.id),
+                                        &profile.name,
+                                    )
+                                    .clicked()
+                                    && state.config.profiles.active_id() != Some(&profile.id)
+                                {
+                                    self.request_proxy(profile.id.clone(), false);
+                                }
+                            }
+                        });
+                });
+            });
+            components::section(&mut columns[1], "内核状态", |ui| {
+                detail_grid(
+                    ui,
+                    [
+                        (
+                            "当前模式",
+                            state.runtime.applied_mode.map_or("异常", mode_label).into(),
+                        ),
+                        ("运行状态", phase_label(state.runtime.phase).into()),
+                        (
+                            "DNS 状态",
+                            if state.runtime.applied_mode == Some(RoutingMode::Direct) {
+                                "系统 DNS".into()
+                            } else {
+                                "受管理".into()
+                            },
+                        ),
+                        (
+                            "配置修订",
+                            format!("修订 {}", state.runtime.applied_revision),
+                        ),
+                    ],
+                );
+            });
+        });
+        ui.add_space(16.0);
+        let total_connections = state.connection_events.len();
+        let successful_connections = state
+            .connection_events
+            .iter()
+            .filter(|event| matches!(event.result, crate::logs::ConnectionResult::Success))
+            .count();
+        let failed_connections = total_connections.saturating_sub(successful_connections);
+        components::section(ui, "连接统计（今日）", |ui| {
+            ui.columns(4, |columns| {
+                for (column, (label, value, color)) in columns.into_iter().zip([
+                    ("今日连接数", total_connections.to_string(), theme::TEXT),
+                    ("成功数", successful_connections.to_string(), theme::GREEN),
+                    ("失败数", failed_connections.to_string(), theme::RED),
+                    (
+                        "最近命中规则",
+                        state
+                            .connection_events
+                            .first()
+                            .and_then(|event| match &event.rule {
+                                crate::logs::RuleAttribution::Known(name) => Some(name.as_str()),
+                                crate::logs::RuleAttribution::Unknown => None,
+                            })
+                            .unwrap_or("暂无")
+                            .to_owned(),
+                        theme::BLUE,
+                    ),
+                ]) {
+                    column.label(RichText::new(label).small().color(theme::MUTED));
+                    column.label(RichText::new(value).strong().color(color));
                 }
             });
+        });
+        if let Some(error) = state.runtime.failure.as_deref() {
+            ui.add_space(12.0);
+            components::error_banner(ui, error);
+        }
+        ui.add_space(16.0);
+        components::section(ui, "最近连接记录", |ui| {
+            if state.connection_events.is_empty() {
+                ui.label(RichText::new("暂无连接记录").color(theme::MUTED));
+                return;
+            }
+            table_header(ui, &["时间", "目标", "出站", "结果"]);
+            for event in state.connection_events.iter().rev().take(3) {
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        [86.0, 26.0],
+                        egui::Label::new(event_time(event.observed_at_unix_ms)),
+                    );
+                    ui.add_sized(
+                        [220.0, 26.0],
+                        egui::Label::new(format!("{}:{}", event.target, event.port)).truncate(),
+                    );
+                    ui.add_sized(
+                        [72.0, 26.0],
+                        egui::Label::new(outbound_label(event.outbound)),
+                    );
+                    match event.result {
+                        crate::logs::ConnectionResult::Success => {
+                            components::state_badge(ui, theme::GREEN, "成功")
+                        }
+                        crate::logs::ConnectionResult::Failure(_) => {
+                            components::state_badge(ui, theme::RED, "失败")
+                        }
+                    }
+                });
+                ui.separator();
+            }
+        });
+    }
+
+    fn proxies_page(&mut self, ui: &mut egui::Ui, state: &UiState) {
+        components::page_header(ui, "代理", "管理 SOCKS5 和 HTTP 代理配置", |ui| {
+            if ui.button("+ 新建代理").clicked() {
+                self.last_error = None;
+                self.proxy_draft = Some(ProxyDraft::default());
+            }
+        });
+        self.error_banner(ui);
+        ui.columns(2, |columns| {
+            components::section(&mut columns[0], "代理列表", |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(440.0)
+                    .show(ui, |ui| {
+                        for profile in state.config.profiles.iter() {
+                            let selected = self.selected_proxy.as_ref() == Some(&profile.id)
+                                || (self.selected_proxy.is_none()
+                                    && state.config.profiles.active_id() == Some(&profile.id));
+                            let label = format!(
+                                "{}\n{}  {}:{}",
+                                profile.name,
+                                protocol_label(profile.protocol),
+                                host_label(&profile.host),
+                                profile.port
+                            );
+                            if ui
+                                .add_sized(
+                                    [ui.available_width(), 48.0],
+                                    egui::Button::selectable(selected, label),
+                                )
+                                .clicked()
+                            {
+                                self.selected_proxy = Some(profile.id.clone());
+                            }
+                            ui.add_space(4.0);
+                        }
+                    });
+            });
+            components::section(&mut columns[1], "代理详情", |ui| {
+                let selected = self
+                    .selected_proxy
+                    .as_ref()
+                    .and_then(|id| state.config.profiles.get(id))
+                    .or_else(|| state.config.profiles.active());
+                if let Some(profile) = selected {
+                    detail_grid(
+                        ui,
+                        [
+                            ("名称", profile.name.clone()),
+                            ("协议", protocol_label(profile.protocol).into()),
+                            (
+                                "服务器",
+                                format!("{}:{}", host_label(&profile.host), profile.port),
+                            ),
+                            (
+                                "认证",
+                                if profile.auth_enabled {
+                                    "已配置".into()
+                                } else {
+                                    "未启用".into()
+                                },
+                            ),
+                        ],
+                    );
+                    ui.add_space(12.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("编辑").clicked() {
+                            self.last_error = None;
+                            self.proxy_draft = Some(ProxyDraft::from_profile(profile));
+                        }
+                        if ui
+                            .add_enabled(
+                                state.config.profiles.active_id() != Some(&profile.id),
+                                egui::Button::new("设为当前代理"),
+                            )
+                            .clicked()
+                        {
+                            self.request_proxy(profile.id.clone(), false);
+                        }
+                        if ui.small_button("删除").clicked() {
+                            self.delete_proxy(&profile.id);
+                        }
+                    });
+                } else {
+                    ui.label(RichText::new("从左侧选择一个代理查看详情。 ").color(theme::MUTED));
+                }
+            });
+        });
         if state.config.profiles.iter().next().is_none() {
-            ui.add_space(28.0);
-            ui.vertical_centered(|ui| ui.label(RichText::new("暂无代理").weak()));
+            components::empty_state(ui, "暂无代理，创建一个代理后即可启用规则代理或全局代理。");
         }
     }
 
     fn rules_page(&mut self, ui: &mut egui::Ui, state: &UiState) {
-        ui.horizontal(|ui| {
-            ui.heading("分流规则");
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        components::page_header(
+            ui,
+            "分流规则",
+            "决定哪些目标通过当前代理连接",
+            |ui| {
                 if ui.button("+ 新建规则").clicked() {
                     self.last_error = None;
                     self.rule_draft = Some(RuleDraft::default());
                 }
+            },
+        );
+        self.error_banner(ui);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("筛选").color(theme::MUTED));
+            ui.add_sized(
+                [260.0, 30.0],
+                egui::TextEdit::singleline(&mut self.rule_filter).hint_text("名称、目标或备注"),
+            );
+            if !self.rule_filter.is_empty() && ui.small_button("清除").clicked() {
+                self.rule_filter.clear();
+            }
+        });
+        ui.add_space(8.0);
+        let rule_filter = self.rule_filter.clone();
+        ui.columns(2, |columns| {
+            components::section(&mut columns[0], "规则列表", |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(400.0)
+                    .show(ui, |ui| {
+                        for rule in state
+                            .config
+                            .rules
+                            .iter()
+                            .filter(|rule| rule_matches(rule, &rule_filter))
+                        {
+                            let selected = self.selected_rule.as_deref() == Some(rule.id.as_str());
+                            let label = format!(
+                                "{}\n{}  ·  {}",
+                                rule.name,
+                                rule_target_label(&rule.target),
+                                rule_ports_label(&rule.ports)
+                            );
+                            ui.horizontal(|ui| {
+                                let mut enabled = rule.enabled;
+                                if ui
+                                    .checkbox(&mut enabled, "")
+                                    .on_hover_text("启用或停用规则")
+                                    .changed()
+                                {
+                                    self.toggle_rule(rule.id.clone(), enabled, false);
+                                }
+                                if ui
+                                    .add_sized(
+                                        [ui.available_width(), 46.0],
+                                        egui::Button::selectable(selected, label),
+                                    )
+                                    .clicked()
+                                {
+                                    self.selected_rule = Some(rule.id.clone());
+                                }
+                            });
+                            ui.add_space(4.0);
+                        }
+                    });
+            });
+            components::section(&mut columns[1], "规则详情", |ui| {
+                let selected = self
+                    .selected_rule
+                    .as_deref()
+                    .and_then(|id| state.config.rules.iter().find(|rule| rule.id == id))
+                    .or_else(|| {
+                        state
+                            .config
+                            .rules
+                            .iter()
+                            .find(|rule| rule_matches(rule, &rule_filter))
+                    });
+                if let Some(rule) = selected {
+                    detail_grid(
+                        ui,
+                        [
+                            ("名称", rule.name.clone()),
+                            ("目标", rule_target_label(&rule.target)),
+                            ("端口", rule_ports_label(&rule.ports)),
+                            (
+                                "状态",
+                                if rule.enabled {
+                                    "已启用".into()
+                                } else {
+                                    "已停用".into()
+                                },
+                            ),
+                            (
+                                "备注",
+                                if rule.note.is_empty() {
+                                    "-".into()
+                                } else {
+                                    rule.note.clone()
+                                },
+                            ),
+                        ],
+                    );
+                    ui.add_space(12.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("编辑").clicked() {
+                            self.last_error = None;
+                            self.rule_draft = Some(RuleDraft::from_rule(rule));
+                        }
+                        if ui.small_button("删除").clicked() {
+                            self.delete_rule(rule.id.clone(), false);
+                        }
+                    });
+                } else {
+                    ui.label(RichText::new("从左侧选择一条规则查看详情。 ").color(theme::MUTED));
+                }
             });
         });
-        self.error_banner(ui);
-        ui.add_space(16.0);
-        egui::Grid::new("rules_table")
-            .num_columns(7)
-            .spacing([18.0, 10.0])
-            .striped(true)
-            .show(ui, |ui| {
-                for heading in ["启用", "名称", "目标", "端口", "备注", "", ""] {
-                    ui.label(RichText::new(heading).strong());
-                }
-                ui.end_row();
-                for rule in state.config.rules.clone() {
-                    let mut enabled = rule.enabled;
-                    if ui.checkbox(&mut enabled, "").changed() {
-                        self.toggle_rule(rule.id.clone(), enabled, false);
-                    }
-                    ui.label(&rule.name);
-                    ui.label(rule_target_label(&rule.target));
-                    ui.label(rule_ports_label(&rule.ports));
-                    ui.label(&rule.note);
-                    if ui.small_button("编辑").clicked() {
-                        self.last_error = None;
-                        self.rule_draft = Some(RuleDraft::from_rule(&rule));
-                    }
-                    if ui.small_button("删除").clicked() {
-                        self.delete_rule(rule.id.clone(), false);
-                    }
-                    ui.end_row();
-                }
-            });
         if state.config.rules.is_empty() {
-            ui.add_space(28.0);
-            ui.vertical_centered(|ui| ui.label(RichText::new("暂无规则").weak()));
+            components::empty_state(ui, "暂无规则，创建规则后可按目标和端口进行分流。");
+        } else if !self.rule_filter.is_empty()
+            && !state
+                .config
+                .rules
+                .iter()
+                .any(|rule| rule_matches(rule, &self.rule_filter))
+        {
+            components::empty_state(ui, "没有匹配的规则。");
         }
     }
 
     fn logs_page(&mut self, ui: &mut egui::Ui, state: &UiState) {
-        ui.horizontal(|ui| {
-            ui.heading("连接日志");
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        components::page_header(
+            ui,
+            "连接日志",
+            "查看已经脱敏的近期连接结果",
+            |ui| {
                 if ui
                     .add_enabled(
                         !state.connection_events.is_empty(),
@@ -381,122 +746,222 @@ impl DesktopApp {
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .clear_logs();
-                    self.last_error = result.err();
+                    match result {
+                        Ok(()) => {
+                            clear_log_selection(&mut self.selected_log_connection);
+                            self.set_success("连接日志已清空");
+                        }
+                        Err(error) => {
+                            self.last_success = None;
+                            self.last_error = Some(error);
+                        }
+                    }
                 }
-            });
-        });
+            },
+        );
         self.error_banner(ui);
-        ui.add_space(16.0);
-        table_header(ui, &["时间", "目标", "出站", "规则", "结果"]);
-        if state.connection_events.is_empty() {
-            ui.add_space(28.0);
-            ui.vertical_centered(|ui| ui.label(RichText::new("暂无连接记录").weak()));
-            return;
-        }
-        egui::ScrollArea::both().show(ui, |ui| {
-            for event in state.connection_events.iter().rev() {
-                ui.horizontal(|ui| {
-                    for value in [
-                        event_time(event.observed_at_unix_ms),
-                        format!("{}:{}", event.target, event.port),
-                        match event.outbound {
-                            crate::logs::ConnectionOutbound::Direct => "直连".into(),
-                            crate::logs::ConnectionOutbound::Proxy => "代理".into(),
-                            crate::logs::ConnectionOutbound::Unknown => "未知".into(),
-                        },
-                        match &event.rule {
-                            crate::logs::RuleAttribution::Known(rule) => rule.clone(),
-                            crate::logs::RuleAttribution::Unknown => "未知".into(),
-                        },
-                        match &event.result {
-                            crate::logs::ConnectionResult::Success => "成功".into(),
-                            crate::logs::ConnectionResult::Failure(detail) => {
-                                format!("失败: {detail}")
-                            }
-                        },
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("筛选").color(theme::MUTED));
+            ui.add_sized(
+                [220.0, 30.0],
+                egui::TextEdit::singleline(&mut self.log_filter).hint_text("目标或规则"),
+            );
+            egui::ComboBox::from_id_salt("log_outbound_filter")
+                .width(92.0)
+                .selected_text(self.log_outbound.map_or("全部出站", outbound_label))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.log_outbound, None, "全部出站");
+                    for outbound in [
+                        crate::logs::ConnectionOutbound::Direct,
+                        crate::logs::ConnectionOutbound::Proxy,
+                        crate::logs::ConnectionOutbound::Unknown,
                     ] {
-                        ui.add_sized([132.0, 28.0], egui::Label::new(value).truncate());
+                        ui.selectable_value(
+                            &mut self.log_outbound,
+                            Some(outbound),
+                            outbound_label(outbound),
+                        );
                     }
                 });
-                ui.separator();
+            egui::ComboBox::from_id_salt("log_result_filter")
+                .width(88.0)
+                .selected_text(match self.log_success {
+                    Some(true) => "成功",
+                    Some(false) => "失败",
+                    None => "全部结果",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.log_success, None, "全部结果");
+                    ui.selectable_value(&mut self.log_success, Some(true), "成功");
+                    ui.selectable_value(&mut self.log_success, Some(false), "失败");
+                });
+            if (!self.log_filter.is_empty()
+                || self.log_outbound.is_some()
+                || self.log_success.is_some())
+                && ui.small_button("清除").clicked()
+            {
+                self.log_filter.clear();
+                self.log_outbound = None;
+                self.log_success = None;
+            }
+        });
+        ui.add_space(8.0);
+        if state.connection_events.is_empty() {
+            components::empty_state(ui, "暂无连接记录。连接发生后会在这里显示脱敏摘要。");
+            return;
+        }
+        components::section(ui, "连接记录", |ui| {
+            table_header(ui, &["时间", "目标", "出站", "规则", "结果", ""]);
+            let mut matches = 0;
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for event in state.connection_events.iter().rev().filter(|event| {
+                        log_matches(event, &self.log_filter, self.log_outbound, self.log_success)
+                    }) {
+                        matches += 1;
+                        ui.horizontal(|ui| {
+                            for value in [
+                                event_time(event.observed_at_unix_ms),
+                                format!("{}:{}", event.target, event.port),
+                                match event.outbound {
+                                    crate::logs::ConnectionOutbound::Direct => "直连".into(),
+                                    crate::logs::ConnectionOutbound::Proxy => "代理".into(),
+                                    crate::logs::ConnectionOutbound::Unknown => "未知".into(),
+                                },
+                                match &event.rule {
+                                    crate::logs::RuleAttribution::Known(rule) => rule.clone(),
+                                    crate::logs::RuleAttribution::Unknown => "未知".into(),
+                                },
+                                match &event.result {
+                                    crate::logs::ConnectionResult::Success => "成功".into(),
+                                    crate::logs::ConnectionResult::Failure(detail) => {
+                                        format!("失败: {detail}")
+                                    }
+                                },
+                            ] {
+                                ui.add_sized(
+                                    [132.0, 28.0],
+                                    egui::Label::new(value)
+                                        .truncate()
+                                        .sense(egui::Sense::hover()),
+                                );
+                            }
+                            let selected =
+                                self.selected_log_connection == Some(event.connection_id);
+                            if ui
+                                .add_sized(
+                                    [56.0, 28.0],
+                                    egui::Button::selectable(
+                                        selected,
+                                        if selected { "收起" } else { "详情" },
+                                    ),
+                                )
+                                .clicked()
+                            {
+                                self.selected_log_connection =
+                                    (!selected).then_some(event.connection_id);
+                            }
+                        });
+                        if self.selected_log_connection == Some(event.connection_id) {
+                            egui::Frame::group(ui.style())
+                                .inner_margin(egui::Margin::same(10))
+                                .show(ui, |ui| log_detail(ui, event));
+                        }
+                        ui.separator();
+                    }
+                });
+            if matches == 0 {
+                components::empty_state(ui, "没有匹配的连接记录。");
             }
         });
     }
 
     fn settings_page(&mut self, ui: &mut egui::Ui, state: &UiState) {
-        page_heading(ui, "设置", "启动、备份与网络恢复");
-        ui.add_space(18.0);
-        let mut startup_enabled = state.config.preferences.start_with_windows;
-        ui.add_enabled(false, egui::Checkbox::new(&mut startup_enabled, "开机启动"));
-        ui.label(
-            RichText::new("首版默认关闭，当前仅展示已保存偏好")
-                .small()
-                .weak(),
-        );
-        ui.add_space(12.0);
-        ui.horizontal(|ui| {
-            #[cfg(windows)]
-            {
-                if ui.button("导入配置...").clicked()
-                    && let Some(path) = rfd::FileDialog::new()
-                        .add_filter("Socks Proxy 备份", &["json"])
-                        .pick_file()
+        components::page_header(ui, "设置", "启动、备份与网络恢复", |_| {});
+        components::section(ui, "启动", |ui| {
+            let mut startup_enabled = state.config.preferences.start_with_windows;
+            ui.add_enabled(false, egui::Checkbox::new(&mut startup_enabled, "开机启动"));
+            ui.label(
+                RichText::new("首版默认关闭，当前仅展示已保存偏好")
+                    .small()
+                    .color(theme::MUTED),
+            );
+        });
+        ui.add_space(14.0);
+        components::section(ui, "备份", |ui| {
+            ui.label(
+                RichText::new("导出文件不包含密码；导入前会先显示替换范围。 ").color(theme::MUTED),
+            );
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                #[cfg(windows)]
                 {
-                    match std::fs::read(path) {
-                        Ok(bytes) => {
-                            let preview = self
-                                .controller
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner())
-                                .preview_backup(&bytes);
-                            match preview {
-                                Ok(preview) => {
-                                    self.pending_import = Some((bytes, preview));
-                                    self.last_error = None;
+                    if ui.button("导入配置...").clicked()
+                        && let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Socks Proxy 备份", &["json"])
+                            .pick_file()
+                    {
+                        match std::fs::read(path) {
+                            Ok(bytes) => {
+                                let preview = self
+                                    .controller
+                                    .lock()
+                                    .unwrap_or_else(|error| error.into_inner())
+                                    .preview_backup(&bytes);
+                                match preview {
+                                    Ok(preview) => {
+                                        self.pending_import = Some((bytes, preview));
+                                        self.last_error = None;
+                                        self.last_success = None;
+                                    }
+                                    Err(error) => self.last_error = Some(error),
                                 }
-                                Err(error) => self.last_error = Some(error),
                             }
-                        }
-                        Err(error) => {
-                            self.last_error =
-                                Some(UiControlError::Operation(format!("读取备份失败: {error}")))
-                        }
-                    }
-                }
-                if ui.button("导出配置...").clicked() {
-                    let backup = self
-                        .controller
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .export_backup();
-                    match backup {
-                        Ok(bytes) => {
-                            if let Some(path) = rfd::FileDialog::new()
-                                .add_filter("Socks Proxy 备份", &["json"])
-                                .set_file_name("socks-proxy-backup.json")
-                                .save_file()
-                                && let Err(error) = std::fs::write(path, bytes)
-                            {
+                            Err(error) => {
                                 self.last_error = Some(UiControlError::Operation(format!(
-                                    "写入备份失败: {error}"
-                                )));
+                                    "读取备份失败: {error}"
+                                )))
                             }
                         }
-                        Err(error) => self.last_error = Some(error),
+                    }
+                    if ui.button("导出配置...").clicked() {
+                        let backup = self
+                            .controller
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .export_backup();
+                        match backup {
+                            Ok(bytes) => {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("Socks Proxy 备份", &["json"])
+                                    .set_file_name("socks-proxy-backup.json")
+                                    .save_file()
+                                    && let Err(error) = std::fs::write(path, bytes)
+                                {
+                                    self.last_error = Some(UiControlError::Operation(format!(
+                                        "写入备份失败: {error}"
+                                    )));
+                                } else {
+                                    self.set_success("备份已导出");
+                                }
+                            }
+                            Err(error) => self.last_error = Some(error),
+                        }
                     }
                 }
-            }
-            #[cfg(not(windows))]
-            {
-                ui.add_enabled(false, egui::Button::new("导入配置..."));
-                ui.add_enabled(false, egui::Button::new("导出配置..."));
-            }
+                #[cfg(not(windows))]
+                {
+                    ui.add_enabled(false, egui::Button::new("导入配置..."));
+                    ui.add_enabled(false, egui::Button::new("导出配置..."));
+                }
+            });
         });
         self.error_banner(ui);
-        ui.add_space(24.0);
-        ui.label(RichText::new("网络恢复").strong());
-        ui.add_space(6.0);
-        ui.label("没有待恢复的网络修改");
+        ui.add_space(14.0);
+        components::section(ui, "网络恢复", |ui| {
+            components::state_badge(ui, theme::GREEN, "没有待恢复的网络修改");
+        });
     }
 
     #[cfg(windows)]
@@ -505,38 +970,47 @@ impl DesktopApp {
             return;
         };
         let preview = *preview;
-        let direct = state.runtime.phase == crate::core::SwitchPhase::Direct
-            && state.runtime.applied_mode == Some(RoutingMode::Direct);
+        let direct = pages::settings::import_allowed(state);
         let mut open = true;
         let mut confirm = false;
         let mut cancel = false;
         egui::Window::new("确认导入备份")
             .collapsible(false)
             .resizable(false)
+            .min_width(440.0)
             .open(&mut open)
             .show(context, |ui| {
-                ui.label("导入将整体替换当前代理、规则和启动偏好。");
-                ui.add_space(10.0);
-                egui::Grid::new("backup_import_preview")
-                    .num_columns(2)
-                    .spacing([24.0, 8.0])
-                    .show(ui, |ui| {
-                        detail_row(ui, "代理", &preview.profiles.to_string());
-                        detail_row(ui, "规则", &preview.rules.to_string());
-                        detail_row(ui, "待补充认证", &preview.missing_credentials.to_string());
-                    });
+                ui.label(RichText::new("导入预览").size(18.0).strong());
+                ui.label(
+                    RichText::new("导入将整体替换当前代理、规则和启动偏好。 ").color(theme::MUTED),
+                );
+                ui.add_space(12.0);
+                components::section(ui, "将要导入", |ui| {
+                    detail_grid(
+                        ui,
+                        [
+                            ("代理", preview.profiles.to_string()),
+                            ("规则", preview.rules.to_string()),
+                            ("待补充认证", preview.missing_credentials.to_string()),
+                        ],
+                    );
+                });
                 if preview.missing_credentials > 0 {
                     ui.add_space(8.0);
-                    ui.colored_label(
-                        Color32::from_rgb(151, 100, 22),
-                        "备份不包含密码；导入后需为这些代理重新填写认证信息。",
+                    components::operation_banner(
+                        ui,
+                        theme::AMBER,
+                        "认证信息需要补充",
+                        "备份不包含密码；导入后需重新填写认证信息。",
                     );
                 }
                 if !direct {
                     ui.add_space(8.0);
-                    ui.colored_label(
-                        Color32::from_rgb(181, 55, 55),
-                        "请先切换到全局直连并完成网络恢复，再提交导入。",
+                    components::operation_banner(
+                        ui,
+                        theme::RED,
+                        "当前不能导入",
+                        "请先切换到全局直连并完成网络恢复。",
                     );
                 }
                 ui.add_space(12.0);
@@ -555,20 +1029,33 @@ impl DesktopApp {
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .import_backup(&bytes);
-                self.last_error = result.err();
+                match result {
+                    Ok(()) => self.set_success("备份已导入"),
+                    Err(error) => {
+                        self.last_success = None;
+                        self.last_error = Some(error);
+                    }
+                }
             }
         } else if cancel || !open {
             self.pending_import = None;
         }
     }
 
-    fn request_mode(&mut self, mode: RoutingMode, confirmed: bool) {
+    fn request_mode(&mut self, mode: RoutingMode, _confirmed: bool) {
         let result = self
             .controller
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .switch_mode(mode, confirmed);
-        self.handle_action(result, PendingAction::Mode(mode));
+            .switch_mode(mode, true);
+        self.pending = None;
+        match result {
+            Ok(()) => self.set_success(format!("已切换为{}", mode_label(mode))),
+            Err(error) => {
+                self.last_success = None;
+                self.last_error = Some(error);
+            }
+        }
     }
 
     fn request_proxy(&mut self, id: ProfileId, confirmed: bool) {
@@ -586,30 +1073,98 @@ impl DesktopApp {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .delete_proxy(id);
-        self.last_error = result.err();
+        match result {
+            Ok(()) => self.set_success("已删除代理"),
+            Err(error) => {
+                self.last_success = None;
+                self.last_error = Some(error);
+            }
+        }
     }
 
     fn handle_action(&mut self, result: Result<(), UiControlError>, pending: PendingAction) {
         match result {
             Ok(()) => {
                 self.pending = None;
-                self.last_error = None;
+                self.set_success(action_success_label(&pending));
             }
             Err(UiControlError::ConfirmationRequired(message)) => {
                 self.pending = Some(pending);
+                self.last_success = None;
                 self.last_error = Some(UiControlError::ConfirmationRequired(message));
             }
             Err(error) => {
                 self.pending = None;
+                self.last_success = None;
                 self.last_error = Some(error);
             }
         }
     }
 
     fn error_banner(&self, ui: &mut egui::Ui) {
+        if let Some(message) = &self.last_success {
+            ui.add_space(8.0);
+            components::success_banner(ui, message);
+        }
         if let Some(error) = &self.last_error {
             ui.add_space(8.0);
-            ui.colored_label(Color32::from_rgb(181, 55, 55), error.to_string());
+            components::error_banner(ui, &error.to_string());
+        }
+    }
+
+    fn set_success(&mut self, message: impl Into<String>) {
+        self.last_error = None;
+        self.last_success = Some(message.into());
+    }
+
+    #[cfg(windows)]
+    fn exit_in_progress(&self) -> bool {
+        self.exit_state.is_in_progress()
+    }
+
+    #[cfg(windows)]
+    fn start_exit(&mut self, context: &egui::Context) {
+        if !self.exit_state.begin() {
+            return;
+        }
+        self.last_error = None;
+        self.show_window(context);
+        let controller = Arc::clone(&self.controller);
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = controller
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .shutdown();
+            let _ = sender.send(result);
+        });
+        self.exit_receiver = Some(receiver);
+    }
+
+    #[cfg(windows)]
+    fn poll_exit(&mut self, context: &egui::Context) {
+        let Some(receiver) = self.exit_receiver.as_ref() else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(Ok(())) => {
+                self.exit_receiver = None;
+                self.exit_state.finish();
+                context.send_viewport_cmd(ViewportCommand::Close);
+            }
+            Ok(Err(error)) => {
+                self.exit_receiver = None;
+                self.exit_state.finish();
+                self.last_error = Some(error);
+                self.show_window(context);
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.exit_receiver = None;
+                self.exit_state.finish();
+                self.last_error = Some(UiControlError::Operation("退出清理线程意外中断".into()));
+                self.show_window(context);
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
         }
     }
 
@@ -638,7 +1193,6 @@ impl DesktopApp {
             });
         if confirm {
             match action {
-                PendingAction::Mode(mode) => self.request_mode(mode, true),
                 PendingAction::Proxy(id) => self.request_proxy(id, true),
                 PendingAction::Save(draft) => self.save_proxy(draft, true),
                 PendingAction::SaveRule(draft) => self.save_rule(draft, true),
@@ -665,54 +1219,50 @@ impl DesktopApp {
         })
         .collapsible(false)
         .resizable(false)
+        .min_width(470.0)
         .open(&mut open)
         .show(context, |ui| {
-            egui::Grid::new("proxy_editor_fields")
-                .num_columns(2)
-                .spacing([16.0, 10.0])
-                .show(ui, |ui| {
-                    ui.label("名称");
-                    ui.text_edit_singleline(&mut draft.name);
-                    ui.end_row();
-                    ui.label("协议");
-                    egui::ComboBox::from_id_salt("proxy_protocol")
-                        .selected_text(protocol_label(draft.protocol))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut draft.protocol,
-                                ProxyProtocol::Socks5,
-                                "SOCKS5",
-                            );
-                            ui.selectable_value(&mut draft.protocol, ProxyProtocol::Http, "HTTP");
-                        });
-                    ui.end_row();
-                    ui.label("服务器");
-                    ui.text_edit_singleline(&mut draft.host);
-                    ui.end_row();
-                    ui.label("端口");
-                    ui.text_edit_singleline(&mut draft.port);
-                    ui.end_row();
-                    ui.label("认证");
-                    ui.checkbox(&mut draft.auth_enabled, "启用");
-                    ui.end_row();
-                    if draft.auth_enabled {
-                        ui.label("用户名");
-                        ui.text_edit_singleline(&mut draft.username);
-                        ui.end_row();
-                        ui.label("密码");
-                        ui.add(egui::TextEdit::singleline(&mut draft.password).password(true));
-                        ui.end_row();
-                    }
+            components::form_row(ui, "名称", Some("用于识别此代理"), |ui| {
+                ui.add_sized([290.0, 30.0], egui::TextEdit::singleline(&mut draft.name));
+            });
+            components::form_row(ui, "协议", None, |ui| {
+                egui::ComboBox::from_id_salt("proxy_protocol")
+                    .width(290.0)
+                    .selected_text(protocol_label(draft.protocol))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut draft.protocol, ProxyProtocol::Socks5, "SOCKS5");
+                        ui.selectable_value(&mut draft.protocol, ProxyProtocol::Http, "HTTP");
+                    });
+            });
+            components::form_row(ui, "服务器", Some("IP 地址或域名"), |ui| {
+                ui.add_sized([290.0, 30.0], egui::TextEdit::singleline(&mut draft.host));
+            });
+            components::form_row(ui, "端口", None, |ui| {
+                ui.add_sized([110.0, 30.0], egui::TextEdit::singleline(&mut draft.port));
+            });
+            components::form_row(ui, "认证", None, |ui| {
+                ui.checkbox(&mut draft.auth_enabled, "启用用户名和密码");
+            });
+            if draft.auth_enabled {
+                components::form_row(ui, "用户名", None, |ui| {
+                    ui.add_sized(
+                        [290.0, 30.0],
+                        egui::TextEdit::singleline(&mut draft.username),
+                    );
                 });
+                components::form_row(ui, "密码", None, |ui| {
+                    ui.add_sized(
+                        [290.0, 30.0],
+                        egui::TextEdit::singleline(&mut draft.password).password(true),
+                    );
+                });
+            }
             if let Some(UiControlError::Validation { field, message }) = &self.last_error {
                 ui.add_space(6.0);
-                ui.colored_label(
-                    Color32::from_rgb(181, 55, 55),
-                    format!("{}: {message}", field_label(field)),
-                );
+                components::field_error(ui, &format!("{}: {message}", field_label(field)));
             } else if let Some(error) = &self.last_error {
                 ui.add_space(6.0);
-                ui.colored_label(Color32::from_rgb(181, 55, 55), error.to_string());
+                components::field_error(ui, &error.to_string());
             }
             ui.add_space(12.0);
             ui.horizontal(|ui| {
@@ -730,16 +1280,20 @@ impl DesktopApp {
             match result {
                 Ok(_) => {
                     wipe_string(&mut draft.password);
-                    self.last_error = None;
+                    self.set_success("代理已保存");
                     return;
                 }
                 Err(UiControlError::ConfirmationRequired(message)) => {
                     self.pending = Some(PendingAction::Save(pending));
+                    self.last_success = None;
                     self.last_error = Some(UiControlError::ConfirmationRequired(message));
                     wipe_string(&mut draft.password);
                     return;
                 }
-                Err(error) => self.last_error = Some(error),
+                Err(error) => {
+                    self.last_success = None;
+                    self.last_error = Some(error);
+                }
             }
         }
         if cancel || !open {
@@ -759,11 +1313,12 @@ impl DesktopApp {
         match result {
             Ok(_) => {
                 self.pending = None;
-                self.last_error = None;
                 self.proxy_draft = None;
+                self.set_success("代理已保存");
             }
             Err(error) => {
                 self.pending = None;
+                self.last_success = None;
                 self.last_error = Some(error);
             }
         }
@@ -797,16 +1352,18 @@ impl DesktopApp {
         match result {
             Ok(_) => {
                 self.pending = None;
-                self.last_error = None;
                 self.rule_draft = None;
+                self.set_success("规则已保存");
             }
             Err(UiControlError::ConfirmationRequired(message)) => {
                 self.pending = Some(PendingAction::SaveRule(pending));
+                self.last_success = None;
                 self.last_error = Some(UiControlError::ConfirmationRequired(message));
                 self.rule_draft = None;
             }
             Err(error) => {
                 self.pending = None;
+                self.last_success = None;
                 self.last_error = Some(error);
             }
         }
@@ -826,56 +1383,55 @@ impl DesktopApp {
         })
         .collapsible(false)
         .resizable(false)
+        .min_width(500.0)
         .open(&mut open)
         .show(context, |ui| {
-            egui::Grid::new("rule_editor_fields")
-                .num_columns(2)
-                .spacing([16.0, 10.0])
-                .show(ui, |ui| {
-                    ui.label("名称");
-                    ui.text_edit_singleline(&mut draft.name);
-                    ui.end_row();
-                    ui.label("启用");
-                    ui.checkbox(&mut draft.enabled, "");
-                    ui.end_row();
-                    ui.label("目标类型");
-                    egui::ComboBox::from_id_salt("rule_target_kind")
-                        .selected_text(rule_target_kind_label(draft.target_kind))
-                        .show_ui(ui, |ui| {
-                            for kind in [
-                                RuleTargetKind::Domain,
-                                RuleTargetKind::DomainSuffix,
-                                RuleTargetKind::Ip,
-                                RuleTargetKind::Cidr,
-                                RuleTargetKind::Range,
-                            ] {
-                                ui.selectable_value(
-                                    &mut draft.target_kind,
-                                    kind,
-                                    rule_target_kind_label(kind),
-                                );
-                            }
-                        });
-                    ui.end_row();
-                    ui.label("目标");
-                    ui.text_edit_singleline(&mut draft.target);
-                    ui.end_row();
-                    ui.label("端口");
-                    ui.text_edit_singleline(&mut draft.ports);
-                    ui.end_row();
-                    ui.label("备注");
-                    ui.text_edit_singleline(&mut draft.note);
-                    ui.end_row();
-                });
+            components::form_row(ui, "名称", Some("便于识别规则用途"), |ui| {
+                ui.add_sized([300.0, 30.0], egui::TextEdit::singleline(&mut draft.name));
+            });
+            components::form_row(ui, "启用", None, |ui| {
+                ui.checkbox(&mut draft.enabled, "规则生效");
+            });
+            components::form_row(ui, "目标类型", None, |ui| {
+                egui::ComboBox::from_id_salt("rule_target_kind")
+                    .width(300.0)
+                    .selected_text(rule_target_kind_label(draft.target_kind))
+                    .show_ui(ui, |ui| {
+                        for kind in [
+                            RuleTargetKind::Domain,
+                            RuleTargetKind::DomainSuffix,
+                            RuleTargetKind::Ip,
+                            RuleTargetKind::Cidr,
+                            RuleTargetKind::Range,
+                        ] {
+                            ui.selectable_value(
+                                &mut draft.target_kind,
+                                kind,
+                                rule_target_kind_label(kind),
+                            );
+                        }
+                    });
+            });
+            components::form_row(
+                ui,
+                "目标",
+                Some("域名、IP、CIDR 或 IP 范围"),
+                |ui| {
+                    ui.add_sized([300.0, 30.0], egui::TextEdit::singleline(&mut draft.target));
+                },
+            );
+            components::form_row(ui, "端口", Some("例如 443 或 80,443,8000-8080"), |ui| {
+                ui.add_sized([300.0, 30.0], egui::TextEdit::singleline(&mut draft.ports));
+            });
+            components::form_row(ui, "备注", None, |ui| {
+                ui.add_sized([300.0, 30.0], egui::TextEdit::singleline(&mut draft.note));
+            });
             if let Some(UiControlError::Validation { field, message }) = &self.last_error {
                 ui.add_space(6.0);
-                ui.colored_label(
-                    Color32::from_rgb(181, 55, 55),
-                    format!("{}: {message}", field_label(field)),
-                );
+                components::field_error(ui, &format!("{}: {message}", field_label(field)));
             } else if let Some(error) = &self.last_error {
                 ui.add_space(6.0);
-                ui.colored_label(Color32::from_rgb(181, 55, 55), error.to_string());
+                components::field_error(ui, &error.to_string());
             }
             ui.add_space(12.0);
             ui.horizontal(|ui| {
@@ -891,15 +1447,19 @@ impl DesktopApp {
                 .save_rule(draft.clone(), false);
             match result {
                 Ok(_) => {
-                    self.last_error = None;
+                    self.set_success("规则已保存");
                     return;
                 }
                 Err(UiControlError::ConfirmationRequired(message)) => {
                     self.pending = Some(PendingAction::SaveRule(draft));
+                    self.last_success = None;
                     self.last_error = Some(UiControlError::ConfirmationRequired(message));
                     return;
                 }
-                Err(error) => self.last_error = Some(error),
+                Err(error) => {
+                    self.last_success = None;
+                    self.last_error = Some(error);
+                }
             }
         }
         if cancel || !open {
@@ -917,6 +1477,7 @@ impl DesktopApp {
             .map(tray::TrayManager::poll)
             .unwrap_or_default();
         for command in commands {
+            let requires_window_feedback = command.requires_window_feedback();
             match command {
                 tray::TrayCommand::ToggleWindow => {
                     self.window_visible = !self.window_visible;
@@ -924,38 +1485,25 @@ impl DesktopApp {
                 }
                 tray::TrayCommand::Mode(mode) => {
                     self.request_mode(mode, false);
-                    self.show_window(context);
                 }
                 tray::TrayCommand::Profile(value) => match ProfileId::parse(&value) {
                     Ok(id) => {
                         self.request_proxy(id, false);
-                        self.show_window(context);
                     }
                     Err(error) => {
-                        self.last_error = Some(UiControlError::Operation(error.to_string()))
+                        self.last_error = Some(UiControlError::Operation(error.to_string()));
+                        self.show_window(context);
                     }
                 },
                 tray::TrayCommand::Page(page) => {
                     self.page = page;
-                    self.show_window(context);
                 }
                 tray::TrayCommand::Exit => {
-                    let result = self
-                        .controller
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .shutdown();
-                    match result {
-                        Ok(()) => {
-                            self.exiting = true;
-                            context.send_viewport_cmd(ViewportCommand::Close);
-                        }
-                        Err(error) => {
-                            self.last_error = Some(error);
-                            self.show_window(context);
-                        }
-                    }
+                    self.start_exit(context);
                 }
+            }
+            if requires_window_feedback {
+                self.show_window(context);
             }
         }
         context.request_repaint_after(std::time::Duration::from_millis(100));
@@ -974,14 +1522,26 @@ impl eframe::App for DesktopApp {
         let context = root.ctx().clone();
         #[cfg(windows)]
         self.process_tray(&context);
-        let state = self.state();
         #[cfg(windows)]
-        if let Some(tray) = &mut self.tray
-            && let Err(error) = tray.sync(&state)
+        self.poll_exit(&context);
+        let exiting = {
+            #[cfg(windows)]
+            {
+                self.exit_in_progress()
+            }
+            #[cfg(not(windows))]
+            {
+                false
+            }
+        };
+        let state = (!exiting).then(|| self.state());
+        #[cfg(windows)]
+        if let (Some(state), Some(tray)) = (state.as_ref(), &mut self.tray)
+            && let Err(error) = tray.sync(state)
         {
             self.last_error = Some(UiControlError::Operation(error));
         }
-        if !self.exiting && context.input(|input| input.viewport().close_requested()) {
+        if !exiting && context.input(|input| input.viewport().close_requested()) {
             context.send_viewport_cmd(ViewportCommand::CancelClose);
             context.send_viewport_cmd(ViewportCommand::Visible(false));
             #[cfg(windows)]
@@ -989,16 +1549,47 @@ impl eframe::App for DesktopApp {
                 self.window_visible = false;
             }
         }
+        if exiting {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::central_panel(root.style()).fill(theme::CANVAS))
+                .show(root, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(120.0);
+                        egui::Frame::new()
+                            .fill(theme::SURFACE)
+                            .stroke(Stroke::new(1.0, theme::BORDER))
+                            .corner_radius(egui::CornerRadius::same(6))
+                            .inner_margin(egui::Margin::same(24))
+                            .show(ui, |ui| {
+                                ui.vertical_centered(|ui| {
+                                    ui.add(egui::Spinner::new().size(24.0).color(theme::BLUE));
+                                    ui.add_space(10.0);
+                                    ui.label(RichText::new("正在退出").size(20.0).strong());
+                                    ui.label(
+                                        RichText::new("正在停止内核并恢复网络设置，请勿关闭程序。")
+                                            .color(theme::MUTED),
+                                    );
+                                });
+                            });
+                    });
+                });
+            return;
+        }
+        let state = state.expect("state exists unless exiting");
         self.navigation(root);
         self.status_bar(root, &state);
         egui::CentralPanel::default()
             .frame(egui::Frame::central_panel(root.style()).inner_margin(egui::Margin::same(28)))
-            .show(root, |ui| match self.page {
-                Page::Status => self.status_page(ui, &state),
-                Page::Proxies => self.proxies_page(ui, &state),
-                Page::Rules => self.rules_page(ui, &state),
-                Page::Logs => self.logs_page(ui, &state),
-                Page::Settings => self.settings_page(ui, &state),
+            .show(root, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| match self.page {
+                        Page::Status => self.status_page(ui, &state),
+                        Page::Proxies => self.proxies_page(ui, &state),
+                        Page::Rules => self.rules_page(ui, &state),
+                        Page::Logs => self.logs_page(ui, &state),
+                        Page::Settings => self.settings_page(ui, &state),
+                    });
             });
         self.confirmation_dialog(&context);
         self.proxy_editor(&context);
@@ -1006,19 +1597,6 @@ impl eframe::App for DesktopApp {
         #[cfg(windows)]
         self.import_preview_dialog(&context, &state);
     }
-}
-
-fn configure_style(context: &egui::Context) {
-    let mut style = (*context.global_style()).clone();
-    style.spacing.item_spacing = Vec2::new(8.0, 8.0);
-    style.spacing.button_padding = Vec2::new(12.0, 7.0);
-    style.visuals = egui::Visuals::light();
-    style.visuals.panel_fill = Color32::from_rgb(252, 252, 253);
-    style.visuals.window_corner_radius = egui::CornerRadius::same(6);
-    style.visuals.widgets.active.corner_radius = egui::CornerRadius::same(4);
-    style.visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(4);
-    style.visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(4);
-    context.set_global_style(style);
 }
 
 fn configure_fonts(context: &egui::Context) {
@@ -1056,9 +1634,45 @@ fn configure_fonts(context: &egui::Context) {
     context.set_fonts(fonts);
 }
 
-fn page_heading(ui: &mut egui::Ui, title: &str, subtitle: &str) {
-    ui.heading(title);
-    ui.label(RichText::new(subtitle).weak());
+fn detail_grid<const N: usize>(ui: &mut egui::Ui, rows: [(&str, String); N]) {
+    let id = ui.id().with(("detail_grid", rows.first().map(|row| row.0)));
+    egui::Grid::new(id)
+        .num_columns(2)
+        .spacing([18.0, 8.0])
+        .show(ui, |ui| {
+            for (label, value) in rows {
+                detail_row(ui, label, &value);
+            }
+        });
+}
+
+fn mode_label(mode: RoutingMode) -> &'static str {
+    pages::status::mode_label(mode)
+}
+
+fn is_applying(state: &UiState) -> bool {
+    pages::status::is_applying(state)
+}
+
+fn global_phase_label(phase: crate::core::SwitchPhase) -> &'static str {
+    pages::status::global_phase_label(phase)
+}
+
+fn outbound_label(outbound: crate::logs::ConnectionOutbound) -> &'static str {
+    pages::logs::outbound_label(outbound)
+}
+
+fn rule_matches(rule: &crate::domain::RoutingRule, filter: &str) -> bool {
+    pages::rules::matches(rule, filter)
+}
+
+fn log_matches(
+    event: &crate::logs::ConnectionEvent,
+    filter: &str,
+    outbound: Option<crate::logs::ConnectionOutbound>,
+    success: Option<bool>,
+) -> bool {
+    pages::logs::matches(event, filter, outbound, success)
 }
 
 fn detail_row(ui: &mut egui::Ui, label: &str, value: &str) {
@@ -1077,6 +1691,41 @@ fn table_header(ui: &mut egui::Ui, cells: &[&str]) {
         }
     });
     ui.separator();
+}
+
+fn log_detail(ui: &mut egui::Ui, event: &crate::logs::ConnectionEvent) {
+    let values = log_detail_values(event);
+    egui::Grid::new(("log_detail", event.connection_id))
+        .num_columns(2)
+        .spacing([16.0, 8.0])
+        .show(ui, |ui| {
+            for (label, value) in &values {
+                log_detail_row(ui, label, value);
+            }
+        });
+}
+
+fn log_detail_values(event: &crate::logs::ConnectionEvent) -> [(&'static str, String); 6] {
+    pages::logs::detail_values(event, event_time)
+}
+
+fn log_detail_row(ui: &mut egui::Ui, label: &str, value: &str) {
+    ui.label(RichText::new(label).weak());
+    ui.horizontal_wrapped(|ui| {
+        ui.add(egui::Label::new(value).wrap().selectable(true));
+        if ui
+            .small_button("复制")
+            .on_hover_text(format!("复制{label}"))
+            .clicked()
+        {
+            ui.ctx().copy_text(value.to_owned());
+        }
+    });
+    ui.end_row();
+}
+
+fn clear_log_selection(selection: &mut Option<u64>) {
+    *selection = None;
 }
 
 fn phase_label(phase: crate::core::SwitchPhase) -> &'static str {
@@ -1098,18 +1747,38 @@ fn event_time(unix_ms: u128) -> String {
     )
 }
 
-fn protocol_label(protocol: ProxyProtocol) -> &'static str {
-    match protocol {
-        ProxyProtocol::Socks5 => "SOCKS5",
-        ProxyProtocol::Http => "HTTP",
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExitState {
+    Idle,
+    InProgress,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl ExitState {
+    fn begin(&mut self) -> bool {
+        if self.is_in_progress() {
+            return false;
+        }
+        *self = Self::InProgress;
+        true
+    }
+
+    fn finish(&mut self) {
+        *self = Self::Idle;
+    }
+
+    fn is_in_progress(self) -> bool {
+        matches!(self, Self::InProgress)
     }
 }
 
+fn protocol_label(protocol: ProxyProtocol) -> &'static str {
+    pages::proxies::protocol_label(protocol)
+}
+
 fn host_label(host: &crate::domain::ProxyHost) -> String {
-    match host {
-        crate::domain::ProxyHost::Ip(ip) => ip.to_string(),
-        crate::domain::ProxyHost::Domain(domain) => domain.as_str().to_owned(),
-    }
+    pages::proxies::host_label(host)
 }
 
 fn rule_target_kind_label(kind: RuleTargetKind) -> &'static str {
@@ -1123,31 +1792,11 @@ fn rule_target_kind_label(kind: RuleTargetKind) -> &'static str {
 }
 
 fn rule_target_label(target: &crate::domain::RuleTarget) -> String {
-    match target {
-        crate::domain::RuleTarget::Domain(value) => value.as_str().to_owned(),
-        crate::domain::RuleTarget::DomainSuffix(value) => format!("*.{}", value.as_str()),
-        crate::domain::RuleTarget::Ip(value) => value.to_string(),
-        crate::domain::RuleTarget::Cidr(value) => value.to_string(),
-        crate::domain::RuleTarget::Range(value) => value.to_string(),
-    }
+    pages::rules::target_label(target)
 }
 
 fn rule_ports_label(ports: &crate::domain::PortSet) -> String {
-    if ports.intervals() == [(1, u16::MAX)] {
-        return "全部".into();
-    }
-    ports
-        .intervals()
-        .iter()
-        .map(|(start, end)| {
-            if start == end {
-                start.to_string()
-            } else {
-                format!("{start}-{end}")
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
+    pages::rules::ports_label(ports)
 }
 
 fn field_label(field: &str) -> &'static str {
@@ -1181,5 +1830,205 @@ mod tests {
             Page::ALL.map(Page::label),
             ["状态", "代理", "分流规则", "连接日志", "设置"]
         );
+    }
+
+    #[test]
+    fn navigation_uses_stable_wide_and_compact_layouts_at_the_breakpoint() {
+        assert_eq!(
+            navigation_layout(theme::NAVIGATION_COMPACT_BREAKPOINT).width,
+            theme::NAVIGATION_WIDE_WIDTH
+        );
+        assert!(!navigation_layout(theme::NAVIGATION_COMPACT_BREAKPOINT).compact);
+        assert_eq!(
+            navigation_layout(theme::NAVIGATION_COMPACT_BREAKPOINT - 1.0).width,
+            theme::NAVIGATION_COMPACT_WIDTH
+        );
+        assert!(navigation_layout(theme::NAVIGATION_COMPACT_BREAKPOINT - 1.0).compact);
+    }
+
+    #[test]
+    fn every_navigation_page_has_an_embedded_local_icon_resource() {
+        assert_eq!(
+            Page::ALL.map(Page::icon_resource_name),
+            [
+                "status.png",
+                "proxies.png",
+                "rules.png",
+                "logs.png",
+                "settings.png"
+            ]
+        );
+        for page in Page::ALL {
+            let _ = page.icon();
+        }
+    }
+
+    #[test]
+    fn connection_log_detail_preserves_long_redacted_values() {
+        let long = "proxy.example.test: authentication failed after the upstream returned a detailed diagnostic that remains readable";
+        let event = crate::logs::ConnectionEvent {
+            observed_at_unix_ms: 1_000,
+            connection_id: 7,
+            target: "very-long-target.example.test".into(),
+            port: 443,
+            outbound: crate::logs::ConnectionOutbound::Proxy,
+            rule: crate::logs::RuleAttribution::Known("very-long-rule-name".into()),
+            result: crate::logs::ConnectionResult::Failure(long.into()),
+            config_revision: 1,
+        };
+        let values = log_detail_values(&event);
+        assert_eq!(values[1], ("目标", "very-long-target.example.test".into()));
+        assert_eq!(values[3], ("出站", "代理".into()));
+        assert_eq!(values[4], ("规则", "very-long-rule-name".into()));
+        assert_eq!(values[5], ("结果", long.into()));
+    }
+
+    #[test]
+    fn connection_log_detail_handles_success_and_unknown_rule() {
+        let event = crate::logs::ConnectionEvent {
+            observed_at_unix_ms: 86_401_000,
+            connection_id: 8,
+            target: "example.test".into(),
+            port: 80,
+            outbound: crate::logs::ConnectionOutbound::Unknown,
+            rule: crate::logs::RuleAttribution::Unknown,
+            result: crate::logs::ConnectionResult::Success,
+            config_revision: 1,
+        };
+        let values = log_detail_values(&event);
+        assert_eq!(values[0], ("时间", "00:00:01".into()));
+        assert_eq!(values[3], ("出站", "未知".into()));
+        assert_eq!(values[4], ("规则", "未知".into()));
+        assert_eq!(values[5], ("结果", "成功".into()));
+    }
+
+    #[test]
+    fn connection_log_detail_redacts_injected_failure_text() {
+        let event = crate::logs::ConnectionEvent {
+            observed_at_unix_ms: 0,
+            connection_id: 9,
+            target: "example.test".into(),
+            port: 443,
+            outbound: crate::logs::ConnectionOutbound::Proxy,
+            rule: crate::logs::RuleAttribution::Unknown,
+            result: crate::logs::ConnectionResult::Failure(
+                "connect failed: password=not-for-display".into(),
+            ),
+            config_revision: 1,
+        };
+        let values = log_detail_values(&event);
+        assert_eq!(
+            values[5],
+            ("结果", "connect failed: password=[REDACTED]".into())
+        );
+    }
+
+    #[test]
+    fn exit_state_starts_one_transaction_and_recovers_after_completion() {
+        let mut state = ExitState::Idle;
+        assert!(state.begin());
+        assert!(state.is_in_progress());
+        assert!(!state.begin());
+        state.finish();
+        assert!(!state.is_in_progress());
+        assert!(state.begin());
+    }
+
+    #[test]
+    fn clearing_logs_closes_the_expanded_detail() {
+        let mut selection = Some(17);
+        clear_log_selection(&mut selection);
+        assert_eq!(selection, None);
+    }
+
+    #[test]
+    fn log_filters_intersect_target_outbound_and_result() {
+        let event = crate::logs::ConnectionEvent {
+            observed_at_unix_ms: 0,
+            connection_id: 10,
+            target: "api.remote.example".into(),
+            port: 443,
+            outbound: crate::logs::ConnectionOutbound::Proxy,
+            rule: crate::logs::RuleAttribution::Known("远程服务".into()),
+            result: crate::logs::ConnectionResult::Success,
+            config_revision: 1,
+        };
+        assert!(log_matches(
+            &event,
+            "REMOTE",
+            Some(crate::logs::ConnectionOutbound::Proxy),
+            Some(true)
+        ));
+        assert!(!log_matches(
+            &event,
+            "REMOTE",
+            Some(crate::logs::ConnectionOutbound::Direct),
+            Some(true)
+        ));
+        assert!(!log_matches(&event, "不存在", None, None));
+        assert!(!log_matches(&event, "", None, Some(false)));
+    }
+
+    #[test]
+    fn routing_mode_labels_remain_explicit() {
+        assert_eq!(mode_label(RoutingMode::Rules), "规则代理");
+        assert_eq!(mode_label(RoutingMode::GlobalProxy), "全局代理");
+        assert_eq!(mode_label(RoutingMode::Direct), "全局直连");
+    }
+
+    #[test]
+    fn global_status_labels_cover_every_runtime_phase() {
+        assert_eq!(
+            global_phase_label(crate::core::SwitchPhase::Direct),
+            "内核未运行"
+        );
+        assert_eq!(
+            global_phase_label(crate::core::SwitchPhase::Running),
+            "内核运行中"
+        );
+        assert_eq!(
+            global_phase_label(crate::core::SwitchPhase::Reconfiguring),
+            "正在应用"
+        );
+        assert_eq!(
+            global_phase_label(crate::core::SwitchPhase::Error),
+            "运行异常"
+        );
+    }
+
+    #[test]
+    fn action_success_labels_describe_committed_actions() {
+        assert_eq!(
+            action_success_label(&PendingAction::Proxy(ProfileId::new())),
+            "已切换当前代理"
+        );
+        assert_eq!(
+            action_success_label(&PendingAction::ToggleRule("rule-a".into(), true)),
+            "规则已启用"
+        );
+        assert_eq!(
+            action_success_label(&PendingAction::ToggleRule("rule-a".into(), false)),
+            "规则已停用"
+        );
+    }
+
+    #[test]
+    fn rule_filter_matches_name_target_and_note_without_mutating_rule() {
+        let rule = crate::domain::RoutingRule {
+            id: "office-gateway".into(),
+            name: "公司内网".into(),
+            enabled: true,
+            target: crate::domain::RuleTarget::Domain(
+                crate::domain::DomainName::parse("gateway.example.com").unwrap(),
+            ),
+            ports: "443".parse().unwrap(),
+            note: "VPN 入口".into(),
+        };
+        assert!(rule_matches(&rule, "公司"));
+        assert!(rule_matches(&rule, "GATEWAY"));
+        assert!(rule_matches(&rule, "vpn"));
+        assert!(!rule_matches(&rule, "database"));
+        assert_eq!(rule.name, "公司内网");
+        assert_eq!(rule.note, "VPN 入口");
     }
 }

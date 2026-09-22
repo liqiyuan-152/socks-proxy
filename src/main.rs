@@ -67,7 +67,7 @@ fn main() -> eframe::Result {
         renderer: eframe::Renderer::Wgpu,
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Socks Proxy")
-            .with_inner_size([920.0, 620.0])
+            .with_inner_size([1000.0, 680.0])
             .with_min_inner_size([760.0, 520.0]),
         ..Default::default()
     };
